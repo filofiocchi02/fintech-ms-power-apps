@@ -1,0 +1,96 @@
+import { AuditTimeline } from '@/components/internal-tools/AuditTimeline';
+import { DetailPanel } from '@/components/internal-tools/DetailPanel';
+import { EnvironmentBadge } from '@/components/internal-tools/EnvironmentBadge';
+import { KeyValueList } from '@/components/internal-tools/KeyValueList';
+import type { Actor } from '@/lib/auth/session';
+
+import type { FlagDetailView } from '../service';
+import { canWriteEnvironment } from '../permissions';
+import { FlagChangeForm } from './FlagChangeForm';
+import { FlagHistory } from './FlagHistory';
+import { FlagStateBadge } from './FlagStateBadge';
+
+interface Props {
+  detail: FlagDetailView;
+  actor: Actor;
+}
+
+export function FlagDetail({ detail, actor }: Props) {
+  const { flag, connectorHistory, appAudit } = detail;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <DetailPanel title={`Flag — ${flag.key}`}>
+        <KeyValueList
+          items={[
+            { label: 'Environment', value: <EnvironmentBadge environment={flag.environment} /> },
+            { label: 'State', value: <FlagStateBadge enabled={flag.enabled} /> },
+            { label: 'Rollout', value: `${flag.rolloutPercentage}%` },
+            { label: 'Description', value: flag.description },
+            { label: 'Last changed', value: flag.lastModifiedAt.toLocaleString() },
+            { label: 'Last changed by', value: flag.lastModifiedBy },
+          ]}
+        />
+      </DetailPanel>
+
+      <DetailPanel title="Targeting">
+        {flag.targeting.length === 0 ? (
+          <p className="text-sm text-muted">
+            No cohort rules. The flag applies to all traffic within the rollout percentage.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2 text-sm">
+            {flag.targeting.map((rule) => (
+              <li key={rule.cohort}>
+                <span className="font-medium text-foreground">{rule.cohort}</span>
+                <span className="text-muted"> — {rule.description}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-muted">
+          Targeting rules are owned by the flag system. Edit them under Change flag.
+        </p>
+      </DetailPanel>
+
+      <DetailPanel title="Change flag">
+        <FlagChangeForm
+          // The form edits a copy of the flag's current values, so it is rebuilt whenever those
+          // values change: a different flag, a different environment, or a change that landed —
+          // including one made elsewhere. Editing in progress survives, since nothing the
+          // operator types moves the authoritative timestamp.
+          key={`${flag.environment}:${flag.key}:${flag.lastModifiedAt.toISOString()}`}
+          flagKey={flag.key}
+          environment={flag.environment}
+          enabled={flag.enabled}
+          rolloutPercentage={flag.rolloutPercentage}
+          targeting={flag.targeting}
+          canWrite={canWriteEnvironment(actor.role, flag.environment)}
+        />
+      </DetailPanel>
+
+      <DetailPanel title="Flag system history">
+        <FlagHistory
+          // A different flag or environment is a different history: never carry a pending
+          // rollback, reason or confirmation from the previous one.
+          key={`${flag.environment}:${flag.key}`}
+          flagKey={flag.key}
+          environment={flag.environment}
+          history={connectorHistory}
+          canWrite={canWriteEnvironment(actor.role, flag.environment)}
+        />
+        <p className="mt-3 text-xs text-muted">
+          Authoritative history from the flag system, including changes made outside this console.
+          A rollback restores an earlier state and is recorded as a new entry.
+        </p>
+      </DetailPanel>
+
+      <DetailPanel title="Internal-tool audit">
+        <AuditTimeline events={appAudit} />
+        <p className="mt-3 text-xs text-muted">
+          What operators did in this console. Separate from the flag system&apos;s own history.
+        </p>
+      </DetailPanel>
+    </div>
+  );
+}
