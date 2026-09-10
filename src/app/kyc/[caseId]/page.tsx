@@ -115,6 +115,7 @@ export default async function KycCasePage({ params }: Props) {
               caseId={workflow.id}
               version={workflow.version}
               decided={decided}
+              awaitingInfo={workflow.status === 'AWAITING_INFO'}
               canDecide={canReviewKyc(guard.actor.role)}
               canAssign={canAssignKyc(guard.actor.role)}
               canTakeOver={canOverrideSanctions(guard.actor.role)}

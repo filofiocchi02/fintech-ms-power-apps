@@ -9,6 +9,7 @@ import {
   getCaseDetail,
   KYC_SUBJECT_TYPE,
   listQueue,
+  requestMoreInfo,
 } from '@/features/kyc/service';
 import type { KycDeps } from '@/features/kyc/service';
 import { requireApiAppAccess } from '@/lib/auth/guards';
@@ -587,6 +588,114 @@ describe('KYC review', () => {
       });
 
       expect(isAppError(result) && result.code).toBe('CONFLICT');
+      expect(caseRow(CASES.ordinary)).toEqual(before);
+    });
+  });
+
+  describe('requesting more information', () => {
+    it('moves an unassigned case to AWAITING_INFO under the requester', async () => {
+      const before = caseRow(CASES.ordinary);
+      const result = await requestMoreInfo(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Please provide proof of address dated within the last 3 months.',
+        expectedVersion: before.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected request, got ${result.message}`);
+      expect(result.status).toBe('AWAITING_INFO');
+      expect(result.assigneeId).toBe(compliance.id);
+      expect(result.version).toBe(before.version + 1);
+
+      const request = auditFor(CASES.ordinary).find((e) => e.action === 'kyc:request-info')!;
+      expect(request.outcome).toBe('ACCEPTED');
+      expect(request.reason).toBe('Please provide proof of address dated within the last 3 months.');
+      expect(JSON.parse(request.afterJson!).status).toBe('AWAITING_INFO');
+    });
+
+    it('lets a manager request information on a case held by an analyst, without taking it', async () => {
+      await claim(compliance, CASES.ordinary);
+      const held = caseRow(CASES.ordinary);
+
+      const result = await requestMoreInfo(deps, manager, {
+        caseId: CASES.ordinary,
+        reason: 'Please also send the latest bank statement.',
+        expectedVersion: held.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected request, got ${result.message}`);
+      expect(result.status).toBe('AWAITING_INFO');
+      // The analyst keeps the case — a request is not a take-over.
+      expect(result.assigneeId).toBe(compliance.id);
+    });
+
+    it('lets a second analyst request information on a held case too', async () => {
+      await claim(compliance, CASES.ordinary);
+      const held = caseRow(CASES.ordinary);
+
+      const result = await requestMoreInfo(deps, otherAnalyst, {
+        caseId: CASES.ordinary,
+        reason: 'The ID scan is unreadable — please resubmit.',
+        expectedVersion: held.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected request, got ${result.message}`);
+      expect(result.status).toBe('AWAITING_INFO');
+      expect(result.assigneeId).toBe(compliance.id);
+    });
+
+    it('keeps the holder able to decide while awaiting information', async () => {
+      await claim(compliance, CASES.ordinary);
+      await requestMoreInfo(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Proof of address, please.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+      const awaiting = caseRow(CASES.ordinary);
+
+      const result = await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        decision: 'REJECT',
+        reason: 'Customer did not respond in time.',
+        expectedVersion: awaiting.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected decision, got ${result.message}`);
+      expect(result.status).toBe('REJECTED');
+    });
+
+    it('refuses a request on a decided case, without mutation', async () => {
+      await claim(compliance, CASES.ordinary);
+      await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        decision: 'REJECT',
+        reason: 'Failed verification.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+      const decided = caseRow(CASES.ordinary);
+
+      const result = await requestMoreInfo(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'One more document?',
+        expectedVersion: decided.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('CONFLICT');
+      expect(caseRow(CASES.ordinary)).toEqual(decided);
+      const denied = auditFor(CASES.ordinary).filter(
+        (e) => e.action === 'kyc:request-info' && e.outcome === 'DENIED',
+      );
+      expect(denied).toHaveLength(1);
+    });
+
+    it('refuses a request from a role without KYC access', async () => {
+      const before = caseRow(CASES.ordinary);
+      const result = await requestMoreInfo(deps, support, {
+        caseId: CASES.ordinary,
+        reason: 'Anything.',
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('FORBIDDEN');
       expect(caseRow(CASES.ordinary)).toEqual(before);
     });
   });

@@ -17,6 +17,7 @@ export const KYC_APP = 'kyc' as const;
 export const KYC_REVIEW_ACTION = 'kyc:decide' as const;
 export const KYC_ASSIGN_ACTION = 'kyc:assign' as const;
 export const KYC_ESCALATE_ACTION = 'kyc:escalate' as const;
+export const KYC_REQUEST_INFO_ACTION = 'kyc:request-info' as const;
 export const KYC_OVERRIDE_ACTION = 'platform:admin' as const;
 
 /**

@@ -53,6 +53,12 @@ const ESCALATABLE_CASE: Record<string, { id: string; customer: string }> = {
   'mobile-375': { id: 'kycwf_0006', customer: 'Zeta GmbH' },
 };
 
+/** Open, unassigned cases each project can claim and then request information on. */
+const REQUESTABLE_CASE: Record<string, { id: string; customer: string }> = {
+  'desktop-1280': { id: 'kycwf_0007', customer: 'Theta Logistics BV' },
+  'mobile-375': { id: 'kycwf_0010', customer: 'Lambda Partners Oy' },
+};
+
 /**
  * A decision is permanent, so the case under test is returned to its seeded state first.
  * Only that case is touched, and rows are deleted rather than the file: the app server
@@ -316,6 +322,52 @@ test.describe('KYC review queue', () => {
       expectedVersion: version,
     });
     expect(holderDecision.status).toBe(200);
+
+    expect(unexpected(errors)).toEqual([]);
+  });
+
+  test('a reviewer can request more information, and a manager can request on a held case', async ({
+    page,
+  }, testInfo) => {
+    const target = REQUESTABLE_CASE[testInfo.project.name];
+    restoreCase(target.id);
+
+    const errors = collectConsoleErrors(page);
+    await actAsUser(page, 'user_casey');
+    await page.goto(`/kyc/${target.id}`);
+    await page.getByRole('button', { name: 'Claim case' }).click();
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+
+    // The holder asks for the missing evidence.
+    await page.getByRole('button', { name: 'Request more info' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Information needed').fill('Proof of address dated within the last 3 months.');
+    await dialog.getByRole('button', { name: 'Send request' }).click();
+
+    await expect(page.getByText('AWAITING INFO').first()).toBeVisible();
+    await expect(page.getByText('kyc:request-info').first()).toBeVisible();
+    await expect(page.getByText('Proof of address dated within the last 3 months.').first()).toBeVisible();
+
+    // A manager can ask for more on a case held by an analyst without taking it over.
+    await actAsUser(page, 'user_morgan');
+    await page.goto(`/kyc/${target.id}`);
+    await expect(page.getByText('Held by Casey Nwosu').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Request more info' }).click();
+    await page.getByRole('dialog').getByLabel('Information needed').fill('And the latest bank statement.');
+    await page.getByRole('dialog').getByRole('button', { name: 'Send request' }).click();
+
+    // Still Casey's case, still awaiting info — and both requests are in the timeline.
+    await expect(page.getByText('Held by Casey Nwosu').first()).toBeVisible();
+    await expect(page.getByText('kyc:request-info')).toHaveCount(2);
+
+    // Support cannot request information through the API either.
+    await actAsRole(page, 'support');
+    const denied = await apiCall(page, 'POST', `/api/kyc/cases/${target.id}/request-info`, {
+      reason: 'Support probing.',
+      expectedVersion: 3,
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.payload.error?.code).toBe('FORBIDDEN');
 
     expect(unexpected(errors)).toEqual([]);
   });

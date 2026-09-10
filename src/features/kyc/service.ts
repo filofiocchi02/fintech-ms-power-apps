@@ -17,6 +17,7 @@ import {
   escalationTargetAssigneeId,
   KYC_ASSIGN_ACTION,
   KYC_ESCALATE_ACTION,
+  KYC_REQUEST_INFO_ACTION,
   KYC_REVIEW_ACTION,
 } from './authorization';
 import type {
@@ -349,6 +350,77 @@ export async function escalateCase(
   await deps.audit.emit({
     app: 'kyc',
     action: KYC_ESCALATE_ACTION,
+    actorId: actor.id,
+    actorRole: actor.role,
+    subjectType: KYC_SUBJECT_TYPE,
+    subjectRef: row.id,
+    outcome: 'ACCEPTED',
+    reason: input.reason,
+    before: snapshot(row),
+    after: snapshot(result.row),
+  });
+
+  return result.row;
+}
+
+export interface RequestInfoInput {
+  caseId: string;
+  /** What the customer is being asked for; recorded in the case audit timeline. */
+  reason: string;
+  expectedVersion: number;
+}
+
+/**
+ * Moves a case to `AWAITING_INFO` while the customer is asked for more evidence — a missing
+ * proof of address, a fresher document, a source-of-funds explanation.
+ *
+ * Unlike deciding or escalating, requesting information does not require holding the case:
+ * a manager can ask for more evidence on an analyst's case without taking it over. An
+ * unassigned case becomes the requester's, because someone has to own the pending request.
+ * The request text lives in the audit detail; the case keeps no mirrored copy of it.
+ */
+export async function requestMoreInfo(
+  deps: KycDeps,
+  actor: Actor,
+  input: RequestInfoInput,
+): Promise<KycCase | AppError> {
+  const denyRequest = (error: AppError, row: KycCase | null) =>
+    deny(deps, actor, KYC_REQUEST_INFO_ACTION, input.caseId, error, row);
+
+  if (!canAccessKyc(actor.role)) {
+    return denyRequest(forbiddenError('Access to KYC is not permitted for this role'), null);
+  }
+  if (!canAssignKyc(actor.role)) {
+    return denyRequest(
+      forbiddenError('Requesting information on a KYC case is not permitted for this role'),
+      null,
+    );
+  }
+
+  const row = deps.workflow.getKycCaseById(input.caseId);
+  if (!row) return notFoundError('KYC case not found');
+
+  if (TERMINAL_STATUSES.includes(row.status)) {
+    return denyRequest(conflictError(`Case is already ${row.status.toLowerCase()}`), row);
+  }
+
+  const result = deps.workflow.updateKycCase(row.id, {
+    status: 'AWAITING_INFO',
+    assigneeId: row.assigneeId ?? actor.id,
+    expectedVersion: input.expectedVersion,
+  });
+
+  if (!result.success) {
+    if (result.error.kind === 'NOT_FOUND') return notFoundError('KYC case not found');
+    return denyRequest(
+      conflictError('This case changed while you were reviewing it. Reload and try again.'),
+      row,
+    );
+  }
+
+  await deps.audit.emit({
+    app: 'kyc',
+    action: KYC_REQUEST_INFO_ACTION,
     actorId: actor.id,
     actorRole: actor.role,
     subjectType: KYC_SUBJECT_TYPE,

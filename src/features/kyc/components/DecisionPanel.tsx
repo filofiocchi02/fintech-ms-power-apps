@@ -9,13 +9,15 @@ import { demoUserName } from '@/lib/auth/users';
 
 import type { KycDecision } from '../types';
 
-type PendingAction = KycDecision | 'ESCALATE';
+type PendingAction = KycDecision | 'ESCALATE' | 'REQUEST_INFO';
 
 interface Props {
   caseId: string;
   /** Version the page was rendered from; a concurrent change invalidates it. */
   version: number;
   decided: boolean;
+  /** The case is waiting on information requested from the customer. */
+  awaitingInfo: boolean;
   /** Mirrors the server's decide permission. The server checks it again. */
   canDecide: boolean;
   /** Mirrors the server's claim/escalate permission (`kyc:assign`). */
@@ -40,6 +42,7 @@ export function DecisionPanel({
   caseId,
   version,
   decided,
+  awaitingInfo,
   canDecide,
   canAssign,
   canTakeOver,
@@ -90,11 +93,29 @@ export function DecisionPanel({
   function confirmLabel(action: PendingAction): string {
     if (action === 'APPROVE') return 'Approve case';
     if (action === 'REJECT') return 'Reject case';
+    if (action === 'REQUEST_INFO') return 'Send request';
     return 'Confirm escalation';
   }
 
+  const requestInfoButton = canAssign && (
+    <button
+      type="button"
+      disabled={submitting}
+      onClick={() => setPendingAction('REQUEST_INFO')}
+      className="rounded border border-border-subtle px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+    >
+      Request more info
+    </button>
+  );
+
   return (
     <div className="space-y-3">
+      {awaitingInfo && (
+        <p className="text-sm text-amber-800" role="status">
+          Awaiting information from the customer — what was asked for is recorded in the audit
+          timeline below.
+        </p>
+      )}
       {heldByMe ? (
         <div className="flex flex-wrap gap-3">
           {canDecide && (
@@ -127,6 +148,7 @@ export function DecisionPanel({
               Escalate to manager
             </button>
           )}
+          {requestInfoButton}
           {submitting && <span className="self-center text-sm text-muted">Submitting…</span>}
         </div>
       ) : claimable ? (
@@ -140,6 +162,7 @@ export function DecisionPanel({
             >
               Claim case
             </button>
+            {requestInfoButton}
             {submitting && <span className="text-sm text-muted">Submitting…</span>}
           </div>
           <p className="text-sm text-muted">
@@ -149,11 +172,16 @@ export function DecisionPanel({
           </p>
         </div>
       ) : (
-        <p className="text-sm text-muted">
-          {heldByOther
-            ? `Held by ${holderName}. Only the reviewer who holds this case can decide or escalate it.`
-            : 'Your role can read this case but not act on it.'}
-        </p>
+        <div className="space-y-2">
+          {canAssign && heldByOther && (
+            <div className="flex flex-wrap items-center gap-3">{requestInfoButton}</div>
+          )}
+          <p className="text-sm text-muted">
+            {heldByOther
+              ? `Held by ${holderName}. Only the reviewer who holds this case can decide or escalate it — anyone on the team can request more information.`
+              : 'Your role can read this case but not act on it.'}
+          </p>
+        </div>
       )}
 
       {heldByMe && approvalBlockedReason && (
@@ -171,29 +199,42 @@ export function DecisionPanel({
             ? 'Approve this case?'
             : pendingAction === 'REJECT'
               ? 'Reject this case?'
-              : 'Escalate this case?'
+              : pendingAction === 'REQUEST_INFO'
+                ? 'Request more information?'
+                : 'Escalate this case?'
         }
         description={
           pendingAction === 'APPROVE'
             ? 'The customer will be recorded as approved. This is final and audited.'
             : pendingAction === 'REJECT'
               ? 'The customer will be recorded as rejected. This is final and audited.'
-              : 'The case is reassigned to the Manager / Admin tier and you will no longer hold it. This is audited.'
+              : pendingAction === 'REQUEST_INFO'
+                ? 'The case moves to Awaiting info until the customer responds. The request is audited.'
+                : 'The case is reassigned to the Manager / Admin tier and you will no longer hold it. This is audited.'
         }
         confirmLabel={pendingAction ? confirmLabel(pendingAction) : 'Confirm'}
         destructive={pendingAction === 'REJECT'}
         reasonInput={{
-          label: pendingAction === 'ESCALATE' ? 'Escalation reason' : 'Decision reason',
+          label:
+            pendingAction === 'ESCALATE'
+              ? 'Escalation reason'
+              : pendingAction === 'REQUEST_INFO'
+                ? 'Information needed'
+                : 'Decision reason',
           value: reason,
           onChange: setReason,
           placeholder:
             pendingAction === 'ESCALATE'
               ? 'Why does this need a manager?'
-              : 'Why is this the right decision?',
+              : pendingAction === 'REQUEST_INFO'
+                ? 'e.g. Proof of address dated within the last 3 months'
+                : 'Why is this the right decision?',
         }}
         onConfirm={() => {
           if (pendingAction === 'ESCALATE') {
             if (!submitting) void post('escalate', { reason: reason.trim(), expectedVersion: version });
+          } else if (pendingAction === 'REQUEST_INFO') {
+            if (!submitting) void post('request-info', { reason: reason.trim(), expectedVersion: version });
           } else if (pendingAction && !submitting) {
             void post('decision', { decision: pendingAction, reason: reason.trim(), expectedVersion: version });
           }
