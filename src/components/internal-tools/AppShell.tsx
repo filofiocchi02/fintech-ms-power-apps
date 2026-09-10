@@ -39,10 +39,7 @@ export async function AppShell({ children, activeApp }: Props) {
             <EnvironmentBadge environment={currentEnvironment()} />
           </div>
           <div className="flex items-center gap-4">
-            {user && (
-              <span className="hidden text-sm text-muted sm:inline">{user.displayName}</span>
-            )}
-            <RoleSwitcher currentRole={user?.role ?? null} />
+            <RoleSwitcher currentUserId={user?.id ?? null} />
           </div>
         </div>
         {user && <AppTabs apps={apps} activeApp={activeApp} />}

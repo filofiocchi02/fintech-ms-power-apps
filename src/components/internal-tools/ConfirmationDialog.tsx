@@ -75,7 +75,7 @@ export function ConfirmationDialog({
   return (
     <dialog
       ref={ref}
-      className="rounded-lg border border-border-subtle bg-surface p-0 shadow-lg backdrop:bg-slate-900/40"
+      className="m-auto rounded-lg border border-border-subtle bg-surface p-0 shadow-lg backdrop:bg-slate-900/40"
     >
       <form
         method="dialog"

@@ -13,7 +13,7 @@ import {
 import type { KycDeps } from '@/features/kyc/service';
 import { requireApiAppAccess } from '@/lib/auth/guards';
 import type { Actor } from '@/lib/auth/session';
-import { ROLE_LABELS, type Role } from '@/lib/auth/roles';
+import { getDemoUser } from '@/lib/auth/users';
 import { isAppError } from '@/lib/errors/errors';
 import { customerConnector } from '@/lib/integrations/mock/customers';
 import { kycReviewProviderConnector } from '@/lib/integrations/mock/kyc';
@@ -33,22 +33,26 @@ import { createTestDb } from './helpers/db';
 const CASES = {
   ordinary: 'kycwf_0001',
   missingDocuments: 'kycwf_0002',
-  /** Seeded IN_REVIEW, already held by the demo Compliance Analyst. */
+  /** Seeded IN_REVIEW, already held by Casey (Compliance Analyst). */
   pepHit: 'kycwf_0003',
   sanctionsHit: 'kycwf_0004',
-  /** Seeded IN_REVIEW, held by the Manager / Admin tier (as if escalated). */
+  /** Seeded IN_REVIEW, held by Morgan on the Manager / Admin tier (as if escalated). */
   managerHeld: 'kycwf_0005',
 } as const;
 
-const MANAGER_TIER_ID = 'demo_manager-admin';
+const MANAGER_TIER_ID = 'user_morgan';
 
-function actorFor(role: Role): Actor {
-  return { id: `demo_${role}`, role, displayName: ROLE_LABELS[role] };
+function actorForUser(userId: string): Actor {
+  const user = getDemoUser(userId);
+  if (!user) throw new Error(`unknown demo user ${userId}`);
+  return { id: user.id, role: user.role, displayName: user.name };
 }
 
-const compliance = actorFor('compliance');
-const manager = actorFor('manager-admin');
-const support = actorFor('support');
+/** Two analysts on purpose: assignment between people of the same role is the point. */
+const compliance = actorForUser('user_casey');
+const otherAnalyst = actorForUser('user_dana');
+const manager = actorForUser('user_morgan');
+const support = actorForUser('user_sam');
 
 describe('KYC review', () => {
   let ctx: ReturnType<typeof createTestDb>;
@@ -62,7 +66,7 @@ describe('KYC review', () => {
       audit: createAuditSink(ctx.db),
       customers: customerConnector,
       provider: kycReviewProviderConnector,
-      now: () => new Date('2026-01-12T09:00:00.000Z'),
+      now: () => new Date('2026-09-10T09:00:00.000Z'),
     };
   });
 
@@ -93,7 +97,7 @@ describe('KYC review', () => {
       const queue = listQueue(deps, compliance);
       if (isAppError(queue)) throw new Error('expected a queue');
 
-      expect(queue).toHaveLength(6);
+      expect(queue).toHaveLength(11);
       const first = queue[0];
       expect(first.customerName).toBe('Acme Corp');
       expect(first.country).toBe('GB');
@@ -223,6 +227,58 @@ describe('KYC review', () => {
       expect(isAppError(result) && result.code).toBe('FORBIDDEN');
       expect(caseRow(CASES.ordinary)).toEqual(before);
       expect(auditFor(CASES.ordinary).every((e) => e.outcome === 'DENIED')).toBe(true);
+    });
+  });
+
+  describe('a second Compliance Analyst', () => {
+    it('cannot decide a case held by another analyst, even though the role can decide', async () => {
+      await claim(compliance, CASES.ordinary);
+      const held = caseRow(CASES.ordinary);
+
+      const result = await decideCase(deps, otherAnalyst, {
+        caseId: CASES.ordinary,
+        decision: 'APPROVE',
+        reason: 'Same role, different person.',
+        expectedVersion: held.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('FORBIDDEN');
+      expect(caseRow(CASES.ordinary)).toEqual(held);
+
+      const denied = auditFor(CASES.ordinary).filter((e) => e.outcome === 'DENIED');
+      expect(denied).toHaveLength(1);
+      expect(denied[0].actorId).toBe(otherAnalyst.id);
+    });
+
+    it('cannot claim or escalate a case held by another analyst', async () => {
+      await claim(compliance, CASES.ordinary);
+      const held = caseRow(CASES.ordinary);
+
+      const claimAttempt = await claimCase(deps, otherAnalyst, {
+        caseId: CASES.ordinary,
+        expectedVersion: held.version,
+      });
+      const escalateAttempt = await escalateCase(deps, otherAnalyst, {
+        caseId: CASES.ordinary,
+        reason: 'Handing off a case that is not mine.',
+        expectedVersion: held.version,
+      });
+
+      expect(isAppError(claimAttempt) && claimAttempt.code).toBe('CONFLICT');
+      expect(isAppError(escalateAttempt) && escalateAttempt.code).toBe('FORBIDDEN');
+      expect(caseRow(CASES.ordinary)).toEqual(held);
+      expect(auditFor(CASES.ordinary).every((e) => e.outcome !== 'ACCEPTED' || e.action === 'kyc:assign')).toBe(true);
+    });
+
+    it('sees the other analyst\'s held case under their name, not "me"', async () => {
+      await claim(compliance, CASES.ordinary);
+
+      const mine = listQueue(deps, otherAnalyst, { assignee: 'me' });
+      const caseys = listQueue(deps, otherAnalyst, { assignee: compliance.id });
+      if (isAppError(mine) || isAppError(caseys)) throw new Error('expected queues');
+
+      expect(mine.map((item) => item.id)).not.toContain(CASES.ordinary);
+      expect(caseys.map((item) => item.id)).toContain(CASES.ordinary);
     });
   });
 

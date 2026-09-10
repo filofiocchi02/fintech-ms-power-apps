@@ -1,5 +1,6 @@
 'use client';
 
+import { demoUserName } from '@/lib/auth/users';
 import type { FlagEnvironment } from '@/lib/integrations/types';
 
 import type { AdminFlagHistoryEntry } from '../contracts';
@@ -42,7 +43,7 @@ export function FlagHistory({ flagKey, environment, history, canWrite }: Props) 
             <div>
               <p className="text-xs text-muted">{entry.changedAt.toLocaleString('en-GB')}</p>
               <p className="font-medium text-foreground">
-                {describeEntry(entry)} by {entry.actorId}
+                {describeEntry(entry)} by {demoUserName(entry.actorId)}
               </p>
               <p className="text-xs text-muted">
                 {entry.enabled ? 'Enabled' : 'Disabled'}, {entry.rolloutPercentage}%,{' '}

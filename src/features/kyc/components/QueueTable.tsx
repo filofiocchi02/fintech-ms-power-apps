@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { DataTable } from '@/components/internal-tools/DataTable';
 import { StatusBadge } from '@/components/internal-tools/StatusBadge';
+import { demoUserName } from '@/lib/auth/users';
 
 import type { KycQueueItem } from '../types';
 import { FlagBadge, RiskBadge } from './RiskBadge';
@@ -50,7 +51,12 @@ export function QueueTable({ items }: { items: KycQueueItem[] }) {
         },
         {
           header: 'Assignee',
-          render: (item) => item.assigneeId ?? <span className="text-muted">Unassigned</span>,
+          render: (item) =>
+            item.assigneeId ? (
+              demoUserName(item.assigneeId)
+            ) : (
+              <span className="text-muted">Unassigned</span>
+            ),
         },
         { header: 'Age', align: 'right', render: (item) => formatAge(item.ageHours) },
       ]}

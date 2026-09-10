@@ -71,11 +71,11 @@ function restoreCase(caseId: string) {
 }
 
 /**
- * A deliberate denial probe makes Chrome log the 403 itself. That browser-generated line is
+ * A deliberate denial probe makes Chrome log the 4xx itself. That browser-generated line is
  * not an application error, so it is excluded; anything else still fails the test.
  */
 function unexpected(errors: string[]): string[] {
-  return errors.filter((error) => !/Failed to load resource.*40[13]/.test(error));
+  return errors.filter((error) => !/Failed to load resource.*40[139]/.test(error));
 }
 
 function collectConsoleErrors(page: Page): string[] {
@@ -89,6 +89,12 @@ function collectConsoleErrors(page: Page): string[] {
 
 async function actAsRole(page: Page, role: string) {
   const res = await page.request.post('/api/demo/role', { data: { role } });
+  expect(res.ok()).toBe(true);
+}
+
+/** Acts as a specific demo user — needed when two users share a role. */
+async function actAsUser(page: Page, userId: string) {
+  const res = await page.request.post('/api/demo/role', { data: { userId } });
   expect(res.ok()).toBe(true);
 }
 
@@ -173,7 +179,7 @@ test.describe('KYC review queue', () => {
 
     await expect(page.getByText('APPROVED').first()).toBeVisible();
     await expect(page.getByText('Documents verified, no adverse findings.').first()).toBeVisible();
-    await expect(page.getByText('ACCEPTED')).toBeVisible();
+    await expect(page.getByText('ACCEPTED').first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
@@ -242,7 +248,7 @@ test.describe('KYC review queue', () => {
     await page.getByRole('button', { name: 'Confirm escalation' }).click();
 
     // The analyst no longer holds the case, so the decision buttons are gone.
-    await expect(page.getByText('demo_manager-admin').first()).toBeVisible();
+    await expect(page.getByText('Morgan Hale').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeHidden();
     await expect(page.getByText('kyc:escalate')).toBeVisible();
 
@@ -255,6 +261,61 @@ test.describe('KYC review queue', () => {
     await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
     // Manager / Admin is the top tier: there is nowhere further to escalate.
     await expect(page.getByRole('button', { name: 'Escalate to manager' })).toBeHidden();
+
+    expect(unexpected(errors)).toEqual([]);
+  });
+
+  test('a second Compliance Analyst cannot act on a case held by another analyst', async ({
+    page,
+  }, testInfo) => {
+    const target = ESCALATABLE_CASE[testInfo.project.name];
+    restoreCase(target.id);
+
+    const errors = collectConsoleErrors(page);
+    // Casey claims the case first.
+    await actAsUser(page, 'user_casey');
+    await page.goto(`/kyc/${target.id}`);
+    await page.getByRole('button', { name: 'Claim case' }).click();
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+
+    // Dana holds the same role but not the case: no decision, escalation or claim UI,
+    // and the same attempts against the API are refused without mutation.
+    await actAsUser(page, 'user_dana');
+    await page.goto(`/kyc/${target.id}`);
+    await expect(page.getByText('Held by Casey Nwosu').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Escalate to manager' })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Claim case' })).toBeHidden();
+
+    const version = 2; // claim moved v1 → v2
+    const decide = await apiCall(page, 'POST', `/api/kyc/cases/${target.id}/decision`, {
+      decision: 'REJECT',
+      reason: 'Same role, different person.',
+      expectedVersion: version,
+    });
+    expect(decide.status).toBe(403);
+    expect(decide.payload.error?.code).toBe('FORBIDDEN');
+
+    const escalate = await apiCall(page, 'POST', `/api/kyc/cases/${target.id}/escalate`, {
+      reason: 'Not my case.',
+      expectedVersion: version,
+    });
+    expect(escalate.status).toBe(403);
+
+    const claim = await apiCall(page, 'POST', `/api/kyc/cases/${target.id}/claim`, {
+      expectedVersion: version,
+    });
+    expect(claim.status).toBe(409);
+
+    // The holder can still decide: Casey rejects her own case.
+    await actAsUser(page, 'user_casey');
+    const holderDecision = await apiCall(page, 'POST', `/api/kyc/cases/${target.id}/decision`, {
+      decision: 'REJECT',
+      reason: 'Deciding as the assignee.',
+      expectedVersion: version,
+    });
+    expect(holderDecision.status).toBe(200);
 
     expect(unexpected(errors)).toEqual([]);
   });

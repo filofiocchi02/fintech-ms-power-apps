@@ -101,19 +101,26 @@ test.describe('direct forbidden access', () => {
     await page.goto('/kyc');
 
     await expect(page.getByText('Access denied')).toBeVisible();
-    await expect(page.getByText('Select a role using the switcher in the header')).toBeVisible();
-    await expect(page.getByLabel('Act as role')).toBeVisible();
+    await expect(page.getByText('Select a user in the header picker')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Act as user' })).toBeVisible();
     await expect(page.getByText('Internal Tools')).toBeVisible();
 
     expect(errors).toEqual([]);
   });
 
-  test('role switcher rejects an unknown role with a typed error', async ({ page }) => {
-    const res = await page.request.post('/api/demo/role', { data: { role: 'superuser' } });
-    expect(res.status()).toBe(403);
-    const body = await res.json();
-    expect(body.success).toBe(false);
-    expect(body.error.code).toBe('FORBIDDEN');
-    expect(body.error.message).toContain('Invalid role');
+  test('user picker rejects an unknown role or user with a typed error', async ({ page }) => {
+    const badRole = await page.request.post('/api/demo/role', { data: { role: 'superuser' } });
+    expect(badRole.status()).toBe(403);
+    const roleBody = await badRole.json();
+    expect(roleBody.success).toBe(false);
+    expect(roleBody.error.code).toBe('FORBIDDEN');
+    expect(roleBody.error.message).toContain('Invalid role');
+
+    const badUser = await page.request.post('/api/demo/role', { data: { userId: 'user_hacker' } });
+    expect(badUser.status()).toBe(403);
+    const userBody = await badUser.json();
+    expect(userBody.success).toBe(false);
+    expect(userBody.error.code).toBe('FORBIDDEN');
+    expect(userBody.error.message).toContain('Invalid user');
   });
 });

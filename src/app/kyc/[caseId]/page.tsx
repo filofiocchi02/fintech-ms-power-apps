@@ -16,6 +16,7 @@ import { canAssignKyc, canOverrideSanctions, canReviewKyc, escalationTargetAssig
 import { kycDeps } from '@/features/kyc/deps';
 import { getCaseDetail, outstandingDocuments, requiresSanctionsOverride } from '@/features/kyc/service';
 import { requireAppAccessOrDenied } from '@/lib/auth/guards';
+import { demoUserName } from '@/lib/auth/users';
 import { isAppError } from '@/lib/errors/errors';
 
 interface Props {
@@ -89,10 +90,16 @@ export default async function KycCasePage({ params }: Props) {
             <KeyValueList
               items={[
                 { label: 'Workflow status', value: <StatusBadge status={workflow.status} /> },
-                { label: 'Assignee', value: workflow.assigneeId ?? 'Unassigned' },
+                {
+                  label: 'Assignee',
+                  value: workflow.assigneeId ? demoUserName(workflow.assigneeId) : 'Unassigned',
+                },
                 { label: 'Age', value: formatAge(queueItem.ageHours) },
                 { label: 'Opened', value: workflow.openedAt.toLocaleString() },
-                { label: 'Decided by', value: workflow.decidedBy ?? '—' },
+                {
+                  label: 'Decided by',
+                  value: workflow.decidedBy ? demoUserName(workflow.decidedBy) : '—',
+                },
                 { label: 'Decision reason', value: workflow.decisionReason ?? '—' },
               ]}
             />

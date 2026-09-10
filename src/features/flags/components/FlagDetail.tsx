@@ -3,6 +3,7 @@ import { DetailPanel } from '@/components/internal-tools/DetailPanel';
 import { EnvironmentBadge } from '@/components/internal-tools/EnvironmentBadge';
 import { KeyValueList } from '@/components/internal-tools/KeyValueList';
 import type { Actor } from '@/lib/auth/session';
+import { demoUserName } from '@/lib/auth/users';
 
 import type { FlagDetailView } from '../service';
 import { canWriteEnvironment } from '../permissions';
@@ -28,7 +29,7 @@ export function FlagDetail({ detail, actor }: Props) {
             { label: 'Rollout', value: `${flag.rolloutPercentage}%` },
             { label: 'Description', value: flag.description },
             { label: 'Last changed', value: flag.lastModifiedAt.toLocaleString() },
-            { label: 'Last changed by', value: flag.lastModifiedBy },
+            { label: 'Last changed by', value: demoUserName(flag.lastModifiedBy) },
           ]}
         />
       </DetailPanel>

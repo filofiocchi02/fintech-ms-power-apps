@@ -16,8 +16,12 @@ import { kycCaseWorkflow, type KycWorkflowStatus } from './schema';
  *    the tool; a seeded "approval" would make the audit trail lie.
  */
 
-/** Fixed clock so seeded case ages are stable across machines and runs. */
-const SEED_EPOCH = Date.parse('2026-01-05T09:00:00.000Z');
+/**
+ * Fixed clock so seeded case ages are stable across machines and runs. The epoch stays a
+ * fixed recent date so seeded ages read in hours/days rather than months; when it goes
+ * stale, bump it rather than reaching for Date.now() — determinism is the rule.
+ */
+const SEED_EPOCH = Date.parse('2026-09-04T09:00:00.000Z');
 const hours = (n: number) => n * 60 * 60 * 1000;
 
 type SeedKycCase = {
@@ -36,8 +40,8 @@ type SeedKycCase = {
  *
  * The spread is intentional: unassigned and assigned, fresh and aged, so the queue's
  * status/assignee/age columns and filters have something real to show. Assignee ids are
- * real demo actor ids (`demo_${role}`), so the Compliance Analyst sees a case it already
- * holds and the Manager / Admin sees one escalated onto its tier.
+ * real demo user ids (`src/lib/auth/users.ts`), so Casey sees a case she already holds and
+ * Morgan sees one escalated onto the Manager / Admin tier.
  */
 export const SEED_KYC_CASES: readonly SeedKycCase[] = [
   {
@@ -61,7 +65,7 @@ export const SEED_KYC_CASES: readonly SeedKycCase[] = [
     providerCaseRef: 'kyc_case_5003',
     customerRef: 'cus_1003',
     status: 'IN_REVIEW',
-    assigneeId: 'demo_compliance',
+    assigneeId: 'user_casey',
     openedOffsetHours: 26,
   },
   {
@@ -77,7 +81,7 @@ export const SEED_KYC_CASES: readonly SeedKycCase[] = [
     providerCaseRef: 'kyc_case_5005',
     customerRef: 'cus_1005',
     status: 'IN_REVIEW',
-    assigneeId: 'demo_manager-admin',
+    assigneeId: 'user_morgan',
     openedOffsetHours: 73,
   },
   {
@@ -87,6 +91,46 @@ export const SEED_KYC_CASES: readonly SeedKycCase[] = [
     status: 'OPEN',
     assigneeId: null,
     openedOffsetHours: 121,
+  },
+  {
+    id: 'kycwf_0007',
+    providerCaseRef: 'kyc_case_5007',
+    customerRef: 'cus_1007',
+    status: 'OPEN',
+    assigneeId: null,
+    openedOffsetHours: 3,
+  },
+  {
+    id: 'kycwf_0008',
+    providerCaseRef: 'kyc_case_5008',
+    customerRef: 'cus_1008',
+    status: 'OPEN',
+    assigneeId: null,
+    openedOffsetHours: 12,
+  },
+  {
+    id: 'kycwf_0009',
+    providerCaseRef: 'kyc_case_5009',
+    customerRef: 'cus_1011',
+    status: 'OPEN',
+    assigneeId: null,
+    openedOffsetHours: 30,
+  },
+  {
+    id: 'kycwf_0010',
+    providerCaseRef: 'kyc_case_5010',
+    customerRef: 'cus_1010',
+    status: 'OPEN',
+    assigneeId: null,
+    openedOffsetHours: 60,
+  },
+  {
+    id: 'kycwf_0011',
+    providerCaseRef: 'kyc_case_5011',
+    customerRef: 'cus_1009',
+    status: 'OPEN',
+    assigneeId: null,
+    openedOffsetHours: 96,
   },
 ];
 

@@ -7,6 +7,7 @@ import { useState, useTransition } from 'react';
 import { FilterBar } from '@/components/internal-tools/FilterBar';
 import { SearchInput } from '@/components/internal-tools/SearchInput';
 import { KYC_WORKFLOW_STATUS } from '@/db/schema';
+import { demoUserName } from '@/lib/auth/users';
 
 interface Props {
   countries: string[];
@@ -106,7 +107,7 @@ export function QueueFilters({ countries, assignees, meId }: Props) {
             { value: 'unassigned', label: 'Unassigned' },
             ...assignees
               .filter((assignee) => assignee !== meId)
-              .map((assignee) => ({ value: assignee, label: assignee })),
+              .map((assignee) => ({ value: assignee, label: demoUserName(assignee) })),
           ]}
           onChange={(value) => setParam('assignee', value)}
         />

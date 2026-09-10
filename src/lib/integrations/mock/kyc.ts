@@ -18,7 +18,7 @@ import { kycProviderConnector } from './kyc-provider';
  * frozen `KycEvidence` shape does not carry.
  */
 
-const EPOCH = Date.parse('2026-01-05T09:00:00.000Z');
+const EPOCH = Date.parse('2026-09-03T09:00:00.000Z');
 const hoursAgo = (n: number) => new Date(EPOCH - n * 60 * 60 * 1000);
 
 interface ReviewContext {
@@ -104,6 +104,69 @@ const REVIEW_CONTEXT: Record<string, ReviewContext> = {
       { name: 'Document authenticity', outcome: 'review', detail: 'Address document expired', completedAt: hoursAgo(118) },
       { name: 'Sanctions screening', outcome: 'fail', detail: 'Match on consolidated list, 91% confidence', completedAt: hoursAgo(118) },
       { name: 'PEP screening', outcome: 'fail', detail: 'Probable match, 76% confidence', completedAt: hoursAgo(118) },
+    ],
+  },
+  kyc_case_5007: {
+    referralReason: 'Routine sample: cross-border freight customer selected for manual review.',
+    documents: [
+      { kind: 'Identity document', status: 'received', required: true, receivedAt: hoursAgo(19) },
+      { kind: 'Proof of address', status: 'received', required: true, receivedAt: hoursAgo(19) },
+    ],
+    checks: [
+      { name: 'Document authenticity', outcome: 'pass', detail: 'ID verified', completedAt: hoursAgo(18) },
+      { name: 'Sanctions screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(18) },
+      { name: 'PEP screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(18) },
+    ],
+  },
+  kyc_case_5008: {
+    referralReason: 'PEP screening matched a director who held a public appointment until 2024.',
+    documents: [
+      { kind: 'Identity document', status: 'received', required: true, receivedAt: hoursAgo(43) },
+      { kind: 'Proof of address', status: 'received', required: true, receivedAt: hoursAgo(43) },
+      { kind: 'Source of funds', status: 'received', required: true, receivedAt: hoursAgo(42) },
+    ],
+    checks: [
+      { name: 'Document authenticity', outcome: 'pass', detail: 'Passport verified', completedAt: hoursAgo(42) },
+      { name: 'Sanctions screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(42) },
+      { name: 'PEP screening', outcome: 'fail', detail: 'Former office holder, 71% confidence', completedAt: hoursAgo(42) },
+    ],
+  },
+  kyc_case_5009: {
+    referralReason: 'Sanctions screening match on the beneficial owner; address proof missing.',
+    documents: [
+      { kind: 'Identity document', status: 'received', required: true, receivedAt: hoursAgo(65) },
+      { kind: 'Proof of address', status: 'missing', required: true, receivedAt: null },
+      { kind: 'Source of funds', status: 'received', required: false, receivedAt: hoursAgo(64) },
+    ],
+    checks: [
+      { name: 'Document authenticity', outcome: 'pass', detail: 'National ID verified', completedAt: hoursAgo(64) },
+      { name: 'Sanctions screening', outcome: 'fail', detail: 'Match on consolidated list, 82% confidence', completedAt: hoursAgo(64) },
+      { name: 'PEP screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(64) },
+    ],
+  },
+  kyc_case_5010: {
+    referralReason: 'Enhanced due-diligence sample: 1 in 50 verified onboardings is reviewed.',
+    documents: [
+      { kind: 'Identity document', status: 'received', required: true, receivedAt: hoursAgo(9) },
+      { kind: 'Proof of address', status: 'received', required: true, receivedAt: hoursAgo(9) },
+    ],
+    checks: [
+      { name: 'Document authenticity', outcome: 'pass', detail: 'Passport MRZ verified', completedAt: hoursAgo(8) },
+      { name: 'Sanctions screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(8) },
+      { name: 'PEP screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(8) },
+    ],
+  },
+  kyc_case_5011: {
+    referralReason: 'Proof of address expired before verification completed.',
+    documents: [
+      { kind: 'Identity document', status: 'received', required: true, receivedAt: hoursAgo(31) },
+      { kind: 'Proof of address', status: 'expired', required: true, receivedAt: hoursAgo(31) },
+      { kind: 'Source of funds', status: 'received', required: false, receivedAt: hoursAgo(30) },
+    ],
+    checks: [
+      { name: 'Document authenticity', outcome: 'review', detail: 'Address document expired', completedAt: hoursAgo(30) },
+      { name: 'Sanctions screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(30) },
+      { name: 'PEP screening', outcome: 'pass', detail: 'No match', completedAt: hoursAgo(30) },
     ],
   },
 };

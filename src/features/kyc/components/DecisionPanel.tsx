@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { ConfirmationDialog } from '@/components/internal-tools/ConfirmationDialog';
 import { ErrorState } from '@/components/internal-tools/ErrorState';
+import { demoUserName } from '@/lib/auth/users';
 
 import type { KycDecision } from '../types';
 
@@ -60,6 +61,7 @@ export function DecisionPanel({
   const heldByMe = assigneeId === actorId;
   const heldByOther = assigneeId !== null && !heldByMe;
   const claimable = canAssign && (!heldByOther || canTakeOver);
+  const holderName = assigneeId ? demoUserName(assigneeId) : null;
 
   async function post(path: string, body: Record<string, unknown>) {
     setSubmitting(true);
@@ -142,14 +144,14 @@ export function DecisionPanel({
           </div>
           <p className="text-sm text-muted">
             {heldByOther
-              ? `Held by ${assigneeId}. Claiming takes the case over and makes you the deciding reviewer.`
+              ? `Held by ${holderName}. Claiming takes the case over and makes you the deciding reviewer.`
               : 'Claim this case to become the deciding reviewer. Only the reviewer who holds a case can decide or escalate it.'}
           </p>
         </div>
       ) : (
         <p className="text-sm text-muted">
           {heldByOther
-            ? `Held by ${assigneeId}. Only the reviewer who holds this case can decide or escalate it.`
+            ? `Held by ${holderName}. Only the reviewer who holds this case can decide or escalate it.`
             : 'Your role can read this case but not act on it.'}
         </p>
       )}

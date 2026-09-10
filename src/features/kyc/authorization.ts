@@ -1,4 +1,5 @@
 import { canAccessApp, canPerformAction, type Role } from '@/lib/auth/roles';
+import { defaultUserForRole } from '@/lib/auth/users';
 
 /**
  * KYC capability names, mapped onto the frozen capability model.
@@ -21,12 +22,12 @@ export const KYC_OVERRIDE_ACTION = 'platform:admin' as const;
 /**
  * Escalation hands a case to the Manager / Admin review tier.
  *
- * Demo actor ids are derived from the role (`demo_${role}` in `getCurrentUser`), so the
- * manager tier is a single known id here. Production resolves a real manager queue or group
- * from the IdP instead; the service layer only depends on this function returning an id.
+ * The demo has a single manager user, so the target is that user's id. Production resolves
+ * a real manager queue or group from the IdP instead; the service layer only depends on
+ * this function returning an id.
  */
 export function escalationTargetAssigneeId(role: Role): string | null {
-  return role === 'manager-admin' ? null : 'demo_manager-admin';
+  return role === 'manager-admin' ? null : (defaultUserForRole('manager-admin')?.id ?? null);
 }
 
 /** May the role open the KYC tool and read its cases? */

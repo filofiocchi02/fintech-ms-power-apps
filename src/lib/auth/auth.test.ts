@@ -11,6 +11,7 @@ import {
 } from './roles';
 import { requireActionPermission, requireApiAppAccess, parseDemoRole } from './guards';
 import type { Actor } from './session';
+import { DEMO_USERS, parseDemoUser } from './users';
 
 const actor = (role: Role, id = `demo_${role}`): Actor => ({
   id,
@@ -116,5 +117,31 @@ describe('demo role parser', () => {
     expect(parseDemoRole({ role: 'hacker' })).toHaveProperty('code', 'FORBIDDEN');
     expect(parseDemoRole('support')).toHaveProperty('code', 'FORBIDDEN');
     expect(parseDemoRole(null)).toHaveProperty('code', 'FORBIDDEN');
+  });
+});
+
+describe('demo user parser', () => {
+  it('provides two Compliance Analysts and one user for every other role', () => {
+    expect(DEMO_USERS.filter((u) => u.role === 'compliance')).toHaveLength(2);
+    for (const role of ['support', 'release-engineer', 'manager-admin'] as const) {
+      expect(DEMO_USERS.filter((u) => u.role === role)).toHaveLength(1);
+    }
+  });
+
+  it('accepts a known user id', () => {
+    const user = parseDemoUser({ userId: 'user_dana' });
+    expect(user).toMatchObject({ id: 'user_dana', role: 'compliance', name: 'Dana Reyes' });
+  });
+
+  it('resolves a bare role to that role\'s default user', () => {
+    const user = parseDemoUser({ role: 'compliance' });
+    expect(user).toMatchObject({ id: 'user_casey', role: 'compliance' });
+  });
+
+  it('rejects unknown users, roles and non-object bodies', () => {
+    expect(parseDemoUser({ userId: 'user_hacker' })).toHaveProperty('code', 'FORBIDDEN');
+    expect(parseDemoUser({ role: 'superuser' })).toHaveProperty('code', 'FORBIDDEN');
+    expect(parseDemoUser(null)).toHaveProperty('code', 'FORBIDDEN');
+    expect(parseDemoUser({})).toHaveProperty('code', 'FORBIDDEN');
   });
 });
