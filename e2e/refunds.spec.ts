@@ -425,7 +425,8 @@ test('large request pending, support denied, manager approves once and rejects',
   expect.soft(errors.unexpected, 'JS pageerrors and unexpected console errors').toEqual([]);
 });
 
-test('all new page/API surfaces deny forbidden roles and anonymous sessions without mutation', async ({ page, browser }) => {
+test('all new page/API surfaces deny forbidden roles and anonymous sessions without mutation', async ({ page, browser }, info) => {
+  test.skip(info.project.name !== 'desktop-1280', 'Quiescence check shares the worker with the money-moving tests that mutate these refs');
   const errors = errorsOn(page);
   const observer = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const observerPage = await observer.newPage();
