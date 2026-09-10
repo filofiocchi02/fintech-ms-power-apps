@@ -302,6 +302,29 @@ describe('large refunds', () => {
     expect(approveEvents[0].outcome).toBe('DENIED');
   });
 
+  it('recovers a case left APPROVED after a lost execution without refunding twice', async () => {
+    const refundCase = await requestLarge('key-recovery');
+    const workflow = createWorkflowRepository(ctx.db);
+
+    // The claim survived, but the process stopped before the execution result was recorded.
+    const claimed = workflow.updateRefundCase(refundCase.id, {
+      status: 'APPROVED',
+      approvedBy: MANAGER.id,
+      approvedAt: new Date(),
+      expectedVersion: 1,
+    });
+    expect(claimed.success).toBe(true);
+    refundsPaymentsConnector.executeRefund(LARGE_PAYMENT, 60000, 'key-recovery');
+
+    const retried = await service.approveRefund(MANAGER, refundCase.id, 'Retry after recovery');
+
+    expect(retried.ok).toBe(true);
+    if (!retried.ok) return;
+    expect(retried.value.case.status).toBe('EXECUTED');
+    expect(refundsPaymentsConnector.listRefunds(LARGE_PAYMENT)).toHaveLength(1);
+    expect(refundableOf(LARGE_PAYMENT)).toBe(65000);
+  });
+
   it('records a rejection without calling the payments system', async () => {
     const refundCase = await requestLarge();
 
@@ -393,6 +416,62 @@ describe('API authorization', () => {
     expect(response.status).toBe(403);
     expect(refundsPaymentsConnector.listRefunds(LARGE_PAYMENT)).toHaveLength(0);
     expect(refundableOf(LARGE_PAYMENT)).toBe(125000);
+  });
+
+  it('refuses a malformed approval body instead of approving on an empty object', async () => {
+    currentActor.value = MANAGER;
+
+    const requested = await service.requestRefund(SUPPORT, {
+      paymentRef: LARGE_PAYMENT,
+      amountMinor: 60000,
+      reason: 'Large request',
+      idempotencyKey: 'key-api-malformed',
+      confirmed: true,
+    });
+    if (!requested.ok) throw new Error('expected the large request to be accepted');
+
+    const { POST } = await import('@/app/api/refunds/cases/[id]/approve/route');
+    const response = await POST(
+      new Request('http://localhost/api/refunds/cases/x/approve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{broken',
+      }),
+      { params: Promise.resolve({ id: requested.value.case.id }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe('VALIDATION');
+    expect(refundsPaymentsConnector.listRefunds(LARGE_PAYMENT)).toHaveLength(0);
+    expect(refundableOf(LARGE_PAYMENT)).toBe(125000);
+
+    const stored = service.getCase(requested.value.case.id);
+    expect(stored.ok && stored.value.refundCase.status).toBe('PENDING_APPROVAL');
+  });
+
+  it('approves on an empty body, which is a legitimate note-free approval', async () => {
+    currentActor.value = MANAGER;
+
+    const requested = await service.requestRefund(SUPPORT, {
+      paymentRef: LARGE_PAYMENT,
+      amountMinor: 60000,
+      reason: 'Large request',
+      idempotencyKey: 'key-api-empty-body',
+      confirmed: true,
+    });
+    if (!requested.ok) throw new Error('expected the large request to be accepted');
+
+    const { POST } = await import('@/app/api/refunds/cases/[id]/approve/route');
+    const response = await POST(
+      new Request('http://localhost/api/refunds/cases/x/approve', { method: 'POST' }),
+      { params: Promise.resolve({ id: requested.value.case.id }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.data.case.status).toBe('EXECUTED');
+    expect(refundsPaymentsConnector.listRefunds(LARGE_PAYMENT)).toHaveLength(1);
   });
 
   it('accepts a valid Support refund request through the API', async () => {

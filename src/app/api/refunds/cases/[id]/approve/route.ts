@@ -1,4 +1,4 @@
-import { jsonError, jsonSuccess, readJsonBody, requireRefundsApiAccess } from '@/features/refunds/api';
+import { jsonError, jsonSuccess, readOptionalJsonBody, requireRefundsApiAccess } from '@/features/refunds/api';
 import { decideRefundRequest } from '@/features/refunds/schemas';
 import { getRefundService } from '@/features/refunds/server';
 import { isAppError } from '@/lib/errors/errors';
@@ -15,13 +15,11 @@ export async function POST(request: Request, ctx: RouteContext<'/api/refunds/cas
   const access = await requireRefundsApiAccess();
   if (!access.allowed) return access.response;
 
-  // An approval carries an optional note, so an empty body is legitimate.
-  const raw = await readJsonBody(request);
-  const parsed = parseOrAppError(
-    decideRefundRequest,
-    isAppError(raw) ? {} : raw,
-    () => 'Invalid approval request',
-  );
+  // An approval carries an optional note, so an empty body is legitimate; malformed JSON is not.
+  const raw = await readOptionalJsonBody(request);
+  if (isAppError(raw)) return jsonError(raw);
+
+  const parsed = parseOrAppError(decideRefundRequest, raw, () => 'Invalid approval request');
   if (isAppError(parsed)) return jsonError(parsed);
 
   const { id } = await ctx.params;

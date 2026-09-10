@@ -384,6 +384,12 @@ export function createRefundService(deps: RefundServiceDeps): RefundService {
       if (row.status === 'EXECUTED') {
         return { ok: false, error: conflictError('Refund has already been executed') };
       }
+      if (row.status === 'APPROVED') {
+        // The case was claimed but never recorded as executed, so the payments system may or
+        // may not hold the refund. The connector is keyed by the case's idempotency key, so
+        // replaying it either returns the original refund or performs the only one.
+        return executeCase(row, approver, row.decisionReason ?? decisionReason ?? null);
+      }
       if (row.status !== 'PENDING_APPROVAL') {
         return { ok: false, error: conflictError(`Refund case is ${row.status}`) };
       }

@@ -54,3 +54,24 @@ export async function readJsonBody(request: Request): Promise<unknown | AppError
     return validationError('Invalid JSON body');
   }
 }
+
+/**
+ * Reads a body whose payload is optional: an absent or empty body means `{}`, but a non-empty
+ * body that is not valid JSON is a validation error rather than a silent empty object.
+ */
+export async function readOptionalJsonBody(request: Request): Promise<unknown | AppError> {
+  let text: string;
+  try {
+    text = await request.text();
+  } catch {
+    return validationError('Invalid JSON body');
+  }
+
+  if (text.trim() === '') return {};
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return validationError('Invalid JSON body');
+  }
+}
