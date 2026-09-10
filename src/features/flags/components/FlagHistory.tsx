@@ -40,7 +40,7 @@ export function FlagHistory({ flagKey, environment, history, canWrite }: Props) 
             className="flex flex-wrap items-start justify-between gap-2 border-b border-border-subtle pb-2 last:border-0"
           >
             <div>
-              <p className="text-xs text-muted">{entry.changedAt.toLocaleString()}</p>
+              <p className="text-xs text-muted">{entry.changedAt.toLocaleString('en-GB')}</p>
               <p className="font-medium text-foreground">
                 {describeEntry(entry)} by {entry.actorId}
               </p>
@@ -77,7 +77,7 @@ export function FlagHistory({ flagKey, environment, history, canWrite }: Props) 
         environment={environment}
         description={
           restoring
-            ? `This will restore ${flagKey} in ${environment} to the state recorded on ${restoring.changedAt.toLocaleString()}: ${
+            ? `This will restore ${flagKey} in ${environment} to the state recorded on ${restoring.changedAt.toLocaleString('en-GB')}: ${
                 restoring.enabled ? 'enabled' : 'disabled'
               }, ${restoring.rolloutPercentage}% rollout, ${
                 restoring.targeting.length === 0
