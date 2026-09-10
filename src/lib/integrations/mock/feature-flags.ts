@@ -1,69 +1,200 @@
 import 'server-only';
 
 import type {
-  FeatureFlag,
-  FeatureFlagConnector,
-  FeatureFlagHistoryEntry,
-  FlagEnvironment,
-} from '../types';
+  AdminFeatureFlag,
+  AdminFlagHistoryEntry,
+  FlagAdminConnector,
+  FlagChangeKind,
+  FlagTargetingRule,
+} from '@/features/flags/contracts';
+
+import type { FlagEnvironment } from '../types';
 
 const EPOCH = Date.parse('2026-01-05T09:00:00.000Z');
+const days = (n: number) => n * 24 * 60 * 60 * 1000;
 
 const flagKeys = ['new-dashboard', 'risk-scoring-v2', 'instant-payouts', 'kyc-auto-approve'];
 
-function initialFlags(): FeatureFlag[] {
+type FlagSeed = {
+  key: string;
+  description: string;
+  targeting: Record<FlagEnvironment, readonly FlagTargetingRule[]>;
+  values: Record<
+    FlagEnvironment,
+    { enabled: boolean; rolloutPercentage: number; lastModifiedBy: string; ageDays: number }
+  >;
+};
+
+const INTERNAL_STAFF: FlagTargetingRule = {
+  cohort: 'internal-staff',
+  description: 'Employees and contractors, always on',
+};
+
+const FLAG_SEEDS: readonly FlagSeed[] = [
+  {
+    key: 'new-dashboard',
+    description: 'React 19 operations console shell',
+    targeting: {
+      dev: [INTERNAL_STAFF],
+      staging: [INTERNAL_STAFF],
+      production: [INTERNAL_STAFF, { cohort: 'beta-tenants', description: '18 opted-in tenants' }],
+    },
+    values: {
+      dev: { enabled: true, rolloutPercentage: 100, lastModifiedBy: 'demo_release_engineer', ageDays: 10 },
+      staging: { enabled: true, rolloutPercentage: 50, lastModifiedBy: 'demo_release_engineer', ageDays: 7 },
+      production: { enabled: false, rolloutPercentage: 0, lastModifiedBy: 'demo_manager_admin', ageDays: 12 },
+    },
+  },
+  {
+    key: 'risk-scoring-v2',
+    description: 'Updated risk model for KYC and refunds',
+    targeting: {
+      dev: [INTERNAL_STAFF],
+      staging: [{ cohort: 'eu-tenants', description: 'EU region tenants only' }],
+      production: [{ cohort: 'eu-tenants', description: 'EU region tenants only' }],
+    },
+    values: {
+      dev: { enabled: true, rolloutPercentage: 100, lastModifiedBy: 'demo_release_engineer', ageDays: 5 },
+      staging: { enabled: true, rolloutPercentage: 25, lastModifiedBy: 'demo_release_engineer', ageDays: 3 },
+      production: { enabled: true, rolloutPercentage: 10, lastModifiedBy: 'demo_manager_admin', ageDays: 2 },
+    },
+  },
+  {
+    key: 'instant-payouts',
+    description: 'Immediate refund execution path',
+    targeting: {
+      dev: [INTERNAL_STAFF],
+      staging: [INTERNAL_STAFF],
+      production: [{ cohort: 'uk-tenants', description: 'UK region tenants only' }],
+    },
+    values: {
+      dev: { enabled: true, rolloutPercentage: 100, lastModifiedBy: 'demo_release_engineer', ageDays: 4 },
+      staging: { enabled: false, rolloutPercentage: 0, lastModifiedBy: 'demo_release_engineer', ageDays: 2 },
+      production: { enabled: false, rolloutPercentage: 0, lastModifiedBy: 'demo_manager_admin', ageDays: 30 },
+    },
+  },
+  {
+    key: 'kyc-auto-approve',
+    description: 'Auto-approve low-risk KYC cases',
+    targeting: {
+      dev: [INTERNAL_STAFF],
+      staging: [{ cohort: 'low-risk-only', description: 'Provider risk level low' }],
+      production: [{ cohort: 'low-risk-only', description: 'Provider risk level low' }],
+    },
+    values: {
+      dev: { enabled: true, rolloutPercentage: 75, lastModifiedBy: 'demo_release_engineer', ageDays: 6 },
+      staging: { enabled: true, rolloutPercentage: 20, lastModifiedBy: 'demo_release_engineer', ageDays: 3 },
+      production: { enabled: false, rolloutPercentage: 0, lastModifiedBy: 'demo_manager_admin', ageDays: 1 },
+    },
+  },
+];
+
+const ENVIRONMENTS: readonly FlagEnvironment[] = ['dev', 'staging', 'production'];
+
+function initialFlags(): AdminFeatureFlag[] {
+  return FLAG_SEEDS.flatMap((seed) =>
+    ENVIRONMENTS.map((environment) => {
+      const value = seed.values[environment];
+      return {
+        key: seed.key,
+        environment,
+        enabled: value.enabled,
+        description: seed.description,
+        rolloutPercentage: value.rolloutPercentage,
+        targeting: seed.targeting[environment],
+        lastModifiedAt: new Date(EPOCH - days(value.ageDays)),
+        lastModifiedBy: value.lastModifiedBy,
+      } satisfies AdminFeatureFlag;
+    }),
+  );
+}
+
+/**
+ * Change history owned by the flag system. It is deliberately pre-populated for a couple of
+ * flags: this is the vendor's record of who changed what, and it exists independently of
+ * anything the internal tool has done.
+ */
+function initialHistory(): AdminFlagHistoryEntry[] {
   return [
     {
-      key: 'new-dashboard',
-      environment: 'dev',
+      key: 'risk-scoring-v2',
+      environment: 'staging',
+      actorId: 'demo_release_engineer',
       enabled: true,
-      description: 'React 19 operations console shell',
-      lastModifiedAt: new Date(EPOCH - 10 * 24 * 60 * 60 * 1000),
-      lastModifiedBy: 'demo_release_engineer',
+      rolloutPercentage: 25,
+      changeKind: 'rollout',
+      reason: 'Widen staging soak to 25%',
+      changedAt: new Date(EPOCH - days(3)),
     },
     {
       key: 'risk-scoring-v2',
-      environment: 'dev',
+      environment: 'production',
+      actorId: 'demo_manager_admin',
       enabled: true,
-      description: 'Updated risk model for KYC and refunds',
-      lastModifiedAt: new Date(EPOCH - 5 * 24 * 60 * 60 * 1000),
-      lastModifiedBy: 'demo_release_engineer',
-    },
-    {
-      key: 'instant-payouts',
-      environment: 'staging',
-      enabled: false,
-      description: 'Immediate refund execution path',
-      lastModifiedAt: new Date(EPOCH - 2 * 24 * 60 * 60 * 1000),
-      lastModifiedBy: 'demo_release_engineer',
+      rolloutPercentage: 10,
+      changeKind: 'rollout',
+      reason: 'Start production ramp after staging soak',
+      changedAt: new Date(EPOCH - days(2)),
     },
     {
       key: 'kyc-auto-approve',
       environment: 'production',
+      actorId: 'demo_manager_admin',
       enabled: false,
-      description: 'Auto-approve low-risk KYC cases',
-      lastModifiedAt: new Date(EPOCH - 1 * 24 * 60 * 60 * 1000),
-      lastModifiedBy: 'demo_manager_admin',
+      rolloutPercentage: 0,
+      changeKind: 'enabled',
+      reason: 'Paused pending compliance sign-off',
+      changedAt: new Date(EPOCH - days(1)),
     },
   ];
 }
 
-let flags: FeatureFlag[] = initialFlags();
-const history: FeatureFlagHistoryEntry[] = [];
-
-function findFlag(key: string, environment: FlagEnvironment): FeatureFlag | undefined {
-  return flags.find((f) => f.key === key && f.environment === environment);
+interface MockFlagState {
+  flags: AdminFeatureFlag[];
+  history: AdminFlagHistoryEntry[];
 }
 
-export const featureFlagConnector: FeatureFlagConnector = {
-  getFlag(key: string, environment: FlagEnvironment): FeatureFlag | null {
+/**
+ * The stand-in flag system lives in memory, and the bundler gives a page and a Route Handler
+ * their own copy of this module, so plain module-level state would let a change made through
+ * the API disappear when the page re-read it. Pinning the state to the process keeps one
+ * flag system per server, which is what the real connector will be.
+ */
+const STATE_KEY = Symbol.for('internal-tools.mock.feature-flags');
+type StateHost = typeof globalThis & { [STATE_KEY]?: MockFlagState };
+
+function state(): MockFlagState {
+  const host = globalThis as StateHost;
+  host[STATE_KEY] ??= { flags: initialFlags(), history: initialHistory() };
+  return host[STATE_KEY];
+}
+
+function findFlag(key: string, environment: FlagEnvironment): AdminFeatureFlag | undefined {
+  return state().flags.find((f) => f.key === key && f.environment === environment);
+}
+
+function recordChange(flag: AdminFeatureFlag, actorId: string, reason: string, changeKind: FlagChangeKind): void {
+  state().history.push({
+    key: flag.key,
+    environment: flag.environment,
+    actorId,
+    enabled: flag.enabled,
+    rolloutPercentage: flag.rolloutPercentage,
+    changeKind,
+    reason,
+    changedAt: new Date(),
+  });
+}
+
+export const featureFlagConnector: FlagAdminConnector = {
+  getFlag(key: string, environment: FlagEnvironment): AdminFeatureFlag | null {
     const flag = findFlag(key, environment);
     return flag ? structuredClone(flag) : null;
   },
-  listFlags(environment: FlagEnvironment): FeatureFlag[] {
+  listFlags(environment: FlagEnvironment): AdminFeatureFlag[] {
     return flagKeys
       .map((key) => findFlag(key, environment))
-      .filter((f): f is FeatureFlag => f != null)
+      .filter((f): f is AdminFeatureFlag => f != null)
       .map((f) => structuredClone(f));
   },
   setFlag(
@@ -72,7 +203,7 @@ export const featureFlagConnector: FeatureFlagConnector = {
     enabled: boolean,
     actorId: string,
     reason: string,
-  ): FeatureFlag | { error: string } {
+  ): AdminFeatureFlag | { error: string } {
     const flag = findFlag(key, environment);
     if (!flag) return { error: `Flag ${key} does not exist in ${environment}` };
     if (environment === 'production' && !reason.trim()) {
@@ -83,26 +214,44 @@ export const featureFlagConnector: FeatureFlagConnector = {
     flag.lastModifiedAt = new Date();
     flag.lastModifiedBy = actorId;
 
-    history.push({
-      key,
-      environment,
-      actorId,
-      enabled,
-      reason,
-      changedAt: new Date(),
-    });
+    recordChange(flag, actorId, reason, 'enabled');
 
     return structuredClone(flag);
   },
-  getHistory(key: string, environment: FlagEnvironment): FeatureFlagHistoryEntry[] {
-    return history
+  setRollout(
+    key: string,
+    environment: FlagEnvironment,
+    rolloutPercentage: number,
+    actorId: string,
+    reason: string,
+  ): AdminFeatureFlag | { error: string } {
+    const flag = findFlag(key, environment);
+    if (!flag) return { error: `Flag ${key} does not exist in ${environment}` };
+    if (!Number.isInteger(rolloutPercentage) || rolloutPercentage < 0 || rolloutPercentage > 100) {
+      return { error: 'Rollout percentage must be an integer between 0 and 100' };
+    }
+    if (environment === 'production' && !reason.trim()) {
+      return { error: 'Production flag changes require a reason' };
+    }
+
+    flag.rolloutPercentage = rolloutPercentage;
+    flag.lastModifiedAt = new Date();
+    flag.lastModifiedBy = actorId;
+
+    recordChange(flag, actorId, reason, 'rollout');
+
+    return structuredClone(flag);
+  },
+  getHistory(key: string, environment: FlagEnvironment): AdminFlagHistoryEntry[] {
+    return state()
+      .history
       .filter((h) => h.key === key && h.environment === environment)
-      .map((h) => structuredClone(h));
+      .map((h) => structuredClone(h))
+      .sort((a, b) => b.changedAt.getTime() - a.changedAt.getTime());
   },
 };
 
 /** Resets mutable mock state between tests. Not part of the public connector contract. */
 export function resetMockFeatureFlags(): void {
-  flags = initialFlags();
-  history.length = 0;
+  (globalThis as StateHost)[STATE_KEY] = { flags: initialFlags(), history: initialHistory() };
 }
