@@ -23,7 +23,16 @@ export function QueueFilters({ countries, assignees }: Props) {
   const router = useRouter();
   const params = useSearchParams();
   const [pending, startTransition] = useTransition();
-  const [search, setSearch] = useState(params.get('search') ?? '');
+  const urlSearch = params.get('search') ?? '';
+  const [search, setSearch] = useState(urlSearch);
+  const [appliedSearch, setAppliedSearch] = useState(urlSearch);
+
+  // The URL is the source of truth: when it changes under the box — Clear, back, a shared
+  // link — the text follows it instead of showing a filter that is no longer applied.
+  if (urlSearch !== appliedSearch) {
+    setAppliedSearch(urlSearch);
+    setSearch(urlSearch);
+  }
 
   function apply(next: URLSearchParams) {
     startTransition(() => {

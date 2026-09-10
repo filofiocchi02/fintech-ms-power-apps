@@ -36,7 +36,10 @@ export default async function KycPage({ searchParams }: Props) {
 
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(await searchParams)) {
-    if (typeof value === 'string') params.set(key, value);
+    // A repeated parameter arrives as an array; take the first, as the API route does, so a
+    // hand-edited URL cannot silently render an unfiltered queue.
+    const first = Array.isArray(value) ? value[0] : value;
+    if (typeof first === 'string') params.set(key, first);
   }
 
   const filters = parseOrAppError(

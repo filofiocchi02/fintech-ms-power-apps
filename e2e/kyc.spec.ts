@@ -110,7 +110,16 @@ test.describe('KYC review queue', () => {
     await page.getByLabel('Risk').selectOption('high');
     await expect(page.getByRole('link', { name: target.customer })).toBeHidden();
     await expect(page.getByRole('link', { name: 'Delta LLC' })).toBeVisible();
+
+    const searchBox = page.getByLabel('Search by customer');
+    await searchBox.fill('Delta');
+    await searchBox.press('Enter');
+    await expect(page).toHaveURL(/risk=high&search=Delta/);
+    await expect(page.getByRole('link', { name: 'Delta LLC' })).toBeVisible();
+
     await page.getByRole('link', { name: 'Clear' }).click();
+    await expect(searchBox).toHaveValue('');
+    await expect(page.getByRole('link', { name: 'Delta LLC' })).toBeVisible();
 
     await page.getByRole('link', { name: target.customer }).click();
     await expect(page).toHaveURL(`/kyc/${target.id}`);
