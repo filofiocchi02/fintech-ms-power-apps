@@ -1,39 +1,42 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { ConfirmationDialog } from '@/components/internal-tools/ConfirmationDialog';
 import type { FlagEnvironment } from '@/lib/integrations/types';
+
+import type { FlagTargetingRule } from '../contracts';
+import { FlagChangeDialog } from './FlagChangeDialog';
+import { TargetingEditor } from './TargetingEditor';
+import { useFlagChange, type PendingChange } from './useFlagChange';
 
 interface Props {
   flagKey: string;
   environment: FlagEnvironment;
   enabled: boolean;
   rolloutPercentage: number;
+  targeting: readonly FlagTargetingRule[];
   /** Mirrors the server permission so the operator is told why an action is unavailable. */
   canWrite: boolean;
 }
 
-type PendingChange = { enabled: boolean } | { rolloutPercentage: number };
-
 /**
- * Enable/disable and rollout controls.
+ * Enable/disable, rollout and targeting controls.
  *
  * Everything here is a convenience over the API: the change is applied by the server, which
  * re-checks the permission, the production restriction, the typed confirmation and the
  * reason. Disabled buttons and hidden dialogs are never the thing stopping a change.
  */
-export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentage, canWrite }: Props) {
-  const router = useRouter();
+export function FlagChangeForm({
+  flagKey,
+  environment,
+  enabled,
+  rolloutPercentage,
+  targeting,
+  canWrite,
+}: Props) {
   const isProduction = environment === 'production';
-
+  const change = useFlagChange(flagKey, environment);
   const [rollout, setRollout] = useState(String(rolloutPercentage));
-  const [pending, setPending] = useState<PendingChange | null>(null);
-  const [reason, setReason] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!canWrite) {
     return (
@@ -45,50 +48,7 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
     );
   }
 
-  function closeDialog() {
-    setPending(null);
-    setReason('');
-    setConfirmation('');
-  }
-
-  async function submit() {
-    if (!pending || submitting) return;
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`/api/flags/${encodeURIComponent(flagKey)}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          environment,
-          ...pending,
-          ...(reason.trim() ? { reason: reason.trim() } : {}),
-          ...(isProduction ? { confirmation } : {}),
-        }),
-      });
-      const payload = (await response.json()) as
-        | { success: true }
-        | { success: false; error: { message: string } };
-
-      // The dialog closes either way: the message belongs on the page behind it, and a
-      // dialog left open after a rejected change is easy to submit again by accident.
-      closeDialog();
-
-      if (!payload.success) {
-        setError(payload.error.message);
-        return;
-      }
-
-      router.refresh();
-    } catch {
-      closeDialog();
-      setError('The change could not be sent. Check your connection and try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
+  // An empty field is not zero: it is nothing, and nothing cannot be applied.
   const parsedRollout = rollout.trim() === '' ? Number.NaN : Number(rollout);
   const rolloutValid =
     Number.isInteger(parsedRollout) && parsedRollout >= 0 && parsedRollout <= 100;
@@ -98,8 +58,8 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => setPending({ enabled: !enabled })}
-          disabled={submitting}
+          onClick={() => change.request({ enabled: !enabled })}
+          disabled={change.submitting}
           className={`rounded px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${
             enabled ? 'bg-red-700 hover:bg-red-800' : 'bg-green-700 hover:bg-green-800'
           }`}
@@ -130,8 +90,8 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
         </div>
         <button
           type="button"
-          onClick={() => setPending({ rolloutPercentage: parsedRollout })}
-          disabled={submitting || !rolloutValid || parsedRollout === rolloutPercentage}
+          onClick={() => change.request({ rolloutPercentage: parsedRollout })}
+          disabled={change.submitting || !rolloutValid || parsedRollout === rolloutPercentage}
           className="rounded bg-blue-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
         >
           Update rollout
@@ -141,40 +101,23 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
         )}
       </div>
 
-      {error && (
+      <TargetingEditor
+        targeting={targeting}
+        submitting={change.submitting}
+        onApply={(rules) => change.request({ targeting: rules })}
+      />
+
+      {change.error && (
         <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-          {error}
+          {change.error}
         </p>
       )}
 
-      <ConfirmationDialog
-        open={pending !== null}
-        title={isProduction ? `Change ${flagKey} in production` : `Change ${flagKey} in ${environment}`}
-        description={describeChange(flagKey, environment, pending)}
-        confirmLabel={submitting ? 'Applying…' : 'Apply change'}
-        // Re-mounting on each open clears the native dialog's confirm latch, so a rejected
-        // change never leaves it stuck half-open.
-        key={pending === null ? 'closed' : 'open'}
-        destructive={isProduction}
-        reasonInput={{
-          label: 'Reason',
-          value: reason,
-          onChange: setReason,
-          placeholder: 'Why is this change being made?',
-        }}
-        confirmationInput={
-          isProduction
-            ? {
-                label: 'Type the flag key to confirm',
-                value: confirmation,
-                onChange: setConfirmation,
-                placeholder: flagKey,
-                expectedValue: flagKey,
-              }
-            : undefined
-        }
-        onConfirm={submit}
-        onCancel={closeDialog}
+      <FlagChangeDialog
+        flagKey={flagKey}
+        environment={environment}
+        description={describeChange(flagKey, environment, change.pending)}
+        change={change}
       />
     </div>
   );
@@ -186,9 +129,18 @@ function describeChange(
   pending: PendingChange | null,
 ): string {
   if (!pending) return '';
-  const target =
-    'enabled' in pending
-      ? `${pending.enabled ? 'enable' : 'disable'} ${flagKey}`
-      : `set ${flagKey} rollout to ${pending.rolloutPercentage}%`;
+  let target: string;
+  if ('enabled' in pending) {
+    target = `${pending.enabled ? 'enable' : 'disable'} ${flagKey}`;
+  } else if ('rolloutPercentage' in pending) {
+    target = `set ${flagKey} rollout to ${pending.rolloutPercentage}%`;
+  } else if ('targeting' in pending) {
+    target =
+      pending.targeting.length === 0
+        ? `remove every targeting rule from ${flagKey}, leaving it to apply to all traffic within the rollout percentage`
+        : `set ${flagKey} targeting to ${pending.targeting.map((rule) => rule.cohort).join(', ')}`;
+  } else {
+    target = `restore ${flagKey} to an earlier recorded state`;
+  }
   return `This will ${target} in ${environment}. The flag system applies the change immediately and records it in its own history.`;
 }

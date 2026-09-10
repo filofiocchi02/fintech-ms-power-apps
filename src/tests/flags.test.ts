@@ -314,6 +314,167 @@ describe('production changes', () => {
   });
 });
 
+describe('targeting rules', () => {
+  it('lets a Release Engineer replace the cohorts of a dev flag', async () => {
+    actAs('release-engineer');
+
+    const response = await patch(FLAG_KEY, {
+      environment: 'dev',
+      targeting: [{ cohort: 'internal-staff', description: 'Employees only' }],
+      reason: 'Narrow the dev cohort',
+    });
+
+    expect(response.status).toBe(200);
+    expect(featureFlagConnector.getFlag(FLAG_KEY, 'dev')?.targeting).toEqual([
+      { cohort: 'internal-staff', description: 'Employees only' },
+    ]);
+    expect(featureFlagConnector.getHistory(FLAG_KEY, 'dev')[0]).toMatchObject({
+      changeKind: 'targeting',
+    });
+  });
+
+  it('records the cohorts before and after in the app audit', async () => {
+    actAs('release-engineer');
+
+    await patch(FLAG_KEY, {
+      environment: 'dev',
+      targeting: [{ cohort: 'beta-tenants', description: 'Opted in' }],
+      reason: 'Swap the dev cohort',
+    });
+
+    const accepted = auditRows().filter((row) => row.outcome === 'ACCEPTED');
+    expect(JSON.parse(accepted[0].beforeJson ?? 'null')).toMatchObject({
+      targeting: ['internal-staff'],
+    });
+    expect(JSON.parse(accepted[0].afterJson ?? 'null')).toMatchObject({
+      targeting: ['beta-tenants'],
+    });
+  });
+
+  it('rejects malformed, duplicate and oversized cohorts without mutating anything', async () => {
+    actAs('release-engineer');
+    const before = featureFlagConnector.getFlag(FLAG_KEY, 'dev')?.targeting;
+
+    const malformed = await patch(FLAG_KEY, {
+      environment: 'dev',
+      targeting: [{ cohort: 'Not A Cohort', description: '' }],
+    });
+    expect(malformed.status).toBe(400);
+
+    const duplicate = await patch(FLAG_KEY, {
+      environment: 'dev',
+      targeting: [
+        { cohort: 'internal-staff', description: 'One' },
+        { cohort: 'internal-staff', description: 'Two' },
+      ],
+    });
+    expect(duplicate.status).toBe(409);
+
+    const tooMany = await patch(FLAG_KEY, {
+      environment: 'dev',
+      targeting: Array.from({ length: 11 }, (_, i) => ({ cohort: `c-${i}`, description: '' })),
+    });
+    expect(tooMany.status).toBe(400);
+
+    expect(featureFlagConnector.getFlag(FLAG_KEY, 'dev')?.targeting).toEqual(before);
+    expect(auditRows().filter((row) => row.outcome === 'ACCEPTED')).toHaveLength(0);
+  });
+
+  it('refuses a production targeting change without confirmation', async () => {
+    actAs('manager-admin');
+    const before = featureFlagConnector.getFlag(FLAG_KEY, 'production')?.targeting;
+
+    const response = await patch(FLAG_KEY, {
+      environment: 'production',
+      targeting: [{ cohort: 'everyone', description: 'All tenants' }],
+      reason: 'Widen the audience',
+    });
+
+    expect(response.status).toBe(400);
+    expect(featureFlagConnector.getFlag(FLAG_KEY, 'production')?.targeting).toEqual(before);
+  });
+});
+
+describe('rollback', () => {
+  const ROLLED_BACK = 'risk-scoring-v2';
+
+  it('restores an earlier recorded state and records the rollback as a new entry', async () => {
+    actAs('release-engineer');
+    const target = featureFlagConnector
+      .getHistory(ROLLED_BACK, 'staging')
+      .find((entry) => entry.rolloutPercentage === 5)!;
+
+    const response = await patch(ROLLED_BACK, {
+      environment: 'staging',
+      rollbackTo: target.id,
+      reason: 'Soak regressed, return to 5%',
+    });
+
+    expect(response.status).toBe(200);
+    expect(featureFlagConnector.getFlag(ROLLED_BACK, 'staging')?.rolloutPercentage).toBe(5);
+
+    const history = featureFlagConnector.getHistory(ROLLED_BACK, 'staging');
+    expect(history[0]).toMatchObject({ changeKind: 'rollback', rolloutPercentage: 5 });
+    // The restored entry is still there: a rollback adds to history, it does not rewrite it.
+    expect(history.some((entry) => entry.id === target.id)).toBe(true);
+  });
+
+  it('refuses a history entry that belongs to another flag or environment', async () => {
+    actAs('release-engineer');
+    const foreign = featureFlagConnector.getHistory(ROLLED_BACK, 'production')[0];
+    const before = featureFlagConnector.getFlag(ROLLED_BACK, 'staging');
+
+    const response = await patch(ROLLED_BACK, {
+      environment: 'staging',
+      rollbackTo: foreign.id,
+      reason: 'Try to restore something from elsewhere',
+    });
+
+    expect(response.status).toBe(409);
+    expect(featureFlagConnector.getFlag(ROLLED_BACK, 'staging')).toMatchObject({
+      enabled: before?.enabled,
+      rolloutPercentage: before?.rolloutPercentage,
+    });
+    expect(auditRows().filter((row) => row.outcome === 'ACCEPTED')).toHaveLength(0);
+  });
+
+  it('refuses a production rollback by a Release Engineer, and requires confirmation from a Manager', async () => {
+    const target = featureFlagConnector.getHistory(ROLLED_BACK, 'production')[0];
+    const before = featureFlagConnector.getFlag(ROLLED_BACK, 'production');
+
+    actAs('release-engineer');
+    const denied = await patch(ROLLED_BACK, {
+      environment: 'production',
+      rollbackTo: target.id,
+      reason: 'Revert the ramp',
+      confirmation: ROLLED_BACK,
+    });
+    expect(denied.status).toBe(403);
+
+    actAs('manager-admin');
+    const unconfirmed = await patch(ROLLED_BACK, {
+      environment: 'production',
+      rollbackTo: target.id,
+      reason: 'Revert the ramp',
+    });
+    expect(unconfirmed.status).toBe(400);
+
+    const confirmed = await patch(ROLLED_BACK, {
+      environment: 'production',
+      rollbackTo: target.id,
+      reason: 'Revert the ramp',
+      confirmation: ROLLED_BACK,
+    });
+    expect(confirmed.status).toBe(200);
+
+    expect(featureFlagConnector.getFlag(ROLLED_BACK, 'production')).toMatchObject({
+      enabled: target.enabled,
+      rolloutPercentage: target.rolloutPercentage,
+    });
+    expect(before).not.toBeNull();
+  });
+});
+
 describe('history ownership', () => {
   it('keeps flag values and history in the connector, not in SQLite', async () => {
     actAs('manager-admin');

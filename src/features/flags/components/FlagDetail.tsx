@@ -7,6 +7,7 @@ import type { Actor } from '@/lib/auth/session';
 import type { FlagDetailView } from '../service';
 import { canWriteEnvironment } from '../permissions';
 import { FlagChangeForm } from './FlagChangeForm';
+import { FlagHistory } from './FlagHistory';
 import { FlagStateBadge } from './FlagStateBadge';
 
 interface Props {
@@ -48,7 +49,7 @@ export function FlagDetail({ detail, actor }: Props) {
           </ul>
         )}
         <p className="mt-3 text-xs text-muted">
-          Targeting rules are owned by the flag system and are read-only in this console.
+          Targeting rules are owned by the flag system. Edit them under Change flag.
         </p>
       </DetailPanel>
 
@@ -61,33 +62,24 @@ export function FlagDetail({ detail, actor }: Props) {
           environment={flag.environment}
           enabled={flag.enabled}
           rolloutPercentage={flag.rolloutPercentage}
+          targeting={flag.targeting}
           canWrite={canWriteEnvironment(actor.role, flag.environment)}
         />
       </DetailPanel>
 
       <DetailPanel title="Flag system history">
-        {connectorHistory.length === 0 ? (
-          <p className="text-sm text-muted">The flag system has recorded no changes here yet.</p>
-        ) : (
-          <ol className="flex flex-col gap-3 text-sm">
-            {connectorHistory.map((entry, index) => (
-              <li key={`${entry.changedAt.toISOString()}-${index}`} className="border-b border-border-subtle pb-2 last:border-0">
-                <p className="text-xs text-muted">{entry.changedAt.toLocaleString()}</p>
-                <p className="font-medium text-foreground">
-                  {entry.changeKind === 'enabled'
-                    ? entry.enabled
-                      ? 'Enabled'
-                      : 'Disabled'
-                    : `Rollout ${entry.rolloutPercentage}%`}{' '}
-                  by {entry.actorId}
-                </p>
-                {entry.reason && <p className="text-xs text-muted">{entry.reason}</p>}
-              </li>
-            ))}
-          </ol>
-        )}
+        <FlagHistory
+          // A different flag or environment is a different history: never carry a pending
+          // rollback, reason or confirmation from the previous one.
+          key={`${flag.environment}:${flag.key}`}
+          flagKey={flag.key}
+          environment={flag.environment}
+          history={connectorHistory}
+          canWrite={canWriteEnvironment(actor.role, flag.environment)}
+        />
         <p className="mt-3 text-xs text-muted">
           Authoritative history from the flag system, including changes made outside this console.
+          A rollback restores an earlier state and is recorded as a new entry.
         </p>
       </DetailPanel>
 

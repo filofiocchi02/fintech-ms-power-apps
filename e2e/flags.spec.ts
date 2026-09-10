@@ -112,6 +112,48 @@ test.describe('feature flag administration', () => {
     await expect(page.getByRole('button', { name: 'Update rollout' })).toBeDisabled();
   });
 
+  test('release engineer edits targeting and rolls a dev flag back', async ({ page }, testInfo) => {
+    // The flag system keeps its state in the running server, shared by every worker, so each
+    // project mutates a flag of its own rather than racing the other one.
+    const flagKey = testInfo.project.name === 'mobile-375' ? 'kyc-auto-approve' : 'instant-payouts';
+    const cohort = `beta-${testInfo.project.name}`;
+    const dialog = page.getByRole('dialog');
+
+    const errors = collectConsoleErrors(page);
+    await actAsRole(page, 'release-engineer');
+    await page.goto(`/flags?env=dev&key=${flagKey}`);
+
+    // Change the rollout first so there is an earlier state worth returning to.
+    await page.getByLabel('Rollout percentage').fill('42');
+    await page.getByRole('button', { name: 'Update rollout' }).click();
+    await dialog.getByLabel('Reason').fill('Ramp the dev cohort to 42%');
+    await dialog.getByRole('button', { name: 'Apply change' }).click();
+    await expect(page.getByText('42%').first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Add cohort' }).click();
+    await page.getByLabel(/^Cohort 2$/).fill(cohort);
+    await page.getByLabel(/^Cohort 2 description$/).fill('Opted-in tenants');
+    await page.getByRole('button', { name: 'Update targeting' }).click();
+    await dialog.getByLabel('Reason').fill('Add the beta cohort in dev');
+    await dialog.getByRole('button', { name: 'Apply change' }).click();
+    await expect(page.getByText('Opted-in tenants').first()).toBeVisible();
+
+    await testInfo.attach('flags-targeting-edited', {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+
+    // The rollout entry is an earlier state: restoring it must drop the cohort again.
+    await page.getByRole('button', { name: 'Roll back to this' }).first().click();
+    await dialog.getByLabel('Reason').fill('Undo the beta cohort');
+    await dialog.getByRole('button', { name: 'Apply change' }).click();
+
+    await expect(page.getByText('Undo the beta cohort').first()).toBeVisible();
+    await expect(page.getByText('Opted-in tenants')).toHaveCount(0);
+
+    expect(errors).toEqual([]);
+  });
+
   test('release engineer cannot write production, in the UI or through the API', async ({ page }) => {
     const errors = collectConsoleErrors(page);
     await actAsRole(page, 'release-engineer');

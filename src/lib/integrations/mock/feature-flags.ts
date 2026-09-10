@@ -117,31 +117,49 @@ function initialFlags(): AdminFeatureFlag[] {
 function initialHistory(): AdminFlagHistoryEntry[] {
   return [
     {
+      id: 'hist_risk_staging_1',
+      key: 'risk-scoring-v2',
+      environment: 'staging',
+      actorId: 'demo_release_engineer',
+      enabled: true,
+      rolloutPercentage: 5,
+      targeting: [{ cohort: 'eu-tenants', description: 'EU region tenants only' }],
+      changeKind: 'rollout',
+      reason: 'Open the staging soak at 5%',
+      changedAt: new Date(EPOCH - days(4)),
+    },
+    {
+      id: 'hist_risk_staging_2',
       key: 'risk-scoring-v2',
       environment: 'staging',
       actorId: 'demo_release_engineer',
       enabled: true,
       rolloutPercentage: 25,
+      targeting: [{ cohort: 'eu-tenants', description: 'EU region tenants only' }],
       changeKind: 'rollout',
       reason: 'Widen staging soak to 25%',
       changedAt: new Date(EPOCH - days(3)),
     },
     {
+      id: 'hist_risk_production_1',
       key: 'risk-scoring-v2',
       environment: 'production',
       actorId: 'demo_manager_admin',
       enabled: true,
       rolloutPercentage: 10,
+      targeting: [{ cohort: 'eu-tenants', description: 'EU region tenants only' }],
       changeKind: 'rollout',
       reason: 'Start production ramp after staging soak',
       changedAt: new Date(EPOCH - days(2)),
     },
     {
+      id: 'hist_kyc_production_1',
       key: 'kyc-auto-approve',
       environment: 'production',
       actorId: 'demo_manager_admin',
       enabled: false,
       rolloutPercentage: 0,
+      targeting: [{ cohort: 'low-risk-only', description: 'Provider risk level low' }],
       changeKind: 'enabled',
       reason: 'Paused pending compliance sign-off',
       changedAt: new Date(EPOCH - days(1)),
@@ -152,7 +170,10 @@ function initialHistory(): AdminFlagHistoryEntry[] {
 interface MockFlagState {
   flags: AdminFeatureFlag[];
   history: AdminFlagHistoryEntry[];
+  nextHistoryId: number;
 }
+
+const MAX_TARGETING_RULES = 10;
 
 /**
  * The stand-in flag system lives in memory, and the bundler gives a page and a Route Handler
@@ -165,7 +186,7 @@ type StateHost = typeof globalThis & { [STATE_KEY]?: MockFlagState };
 
 function state(): MockFlagState {
   const host = globalThis as StateHost;
-  host[STATE_KEY] ??= { flags: initialFlags(), history: initialHistory() };
+  host[STATE_KEY] ??= { flags: initialFlags(), history: initialHistory(), nextHistoryId: 1 };
   return host[STATE_KEY];
 }
 
@@ -174,16 +195,34 @@ function findFlag(key: string, environment: FlagEnvironment): AdminFeatureFlag |
 }
 
 function recordChange(flag: AdminFeatureFlag, actorId: string, reason: string, changeKind: FlagChangeKind): void {
-  state().history.push({
+  const current = state();
+  current.history.push({
+    id: `hist_local_${current.nextHistoryId++}`,
     key: flag.key,
     environment: flag.environment,
     actorId,
     enabled: flag.enabled,
     rolloutPercentage: flag.rolloutPercentage,
+    targeting: structuredClone(flag.targeting) as FlagTargetingRule[],
     changeKind,
     reason,
     changedAt: new Date(),
   });
+}
+
+/** Targeting the flag system will accept: named cohorts, each named once. */
+function targetingError(targeting: readonly FlagTargetingRule[]): string | null {
+  if (targeting.length > MAX_TARGETING_RULES) {
+    return `A flag may have at most ${MAX_TARGETING_RULES} targeting rules`;
+  }
+  if (targeting.some((rule) => !rule.cohort.trim())) {
+    return 'Every targeting rule needs a cohort';
+  }
+  const cohorts = targeting.map((rule) => rule.cohort.trim().toLowerCase());
+  if (new Set(cohorts).size !== cohorts.length) {
+    return 'Targeting cohorts must be unique';
+  }
+  return null;
 }
 
 export const featureFlagConnector: FlagAdminConnector = {
@@ -242,6 +281,62 @@ export const featureFlagConnector: FlagAdminConnector = {
 
     return structuredClone(flag);
   },
+  setTargeting(
+    key: string,
+    environment: FlagEnvironment,
+    targeting: readonly FlagTargetingRule[],
+    actorId: string,
+    reason: string,
+  ): AdminFeatureFlag | { error: string } {
+    const flag = findFlag(key, environment);
+    if (!flag) return { error: `Flag ${key} does not exist in ${environment}` };
+    const invalid = targetingError(targeting);
+    if (invalid) return { error: invalid };
+    if (environment === 'production' && !reason.trim()) {
+      return { error: 'Production flag changes require a reason' };
+    }
+
+    flag.targeting = targeting.map((rule) => ({
+      cohort: rule.cohort.trim(),
+      description: rule.description.trim(),
+    }));
+    flag.lastModifiedAt = new Date();
+    flag.lastModifiedBy = actorId;
+
+    recordChange(flag, actorId, reason, 'targeting');
+
+    return structuredClone(flag);
+  },
+  rollbackTo(
+    key: string,
+    environment: FlagEnvironment,
+    historyId: string,
+    actorId: string,
+    reason: string,
+  ): AdminFeatureFlag | { error: string } {
+    const flag = findFlag(key, environment);
+    if (!flag) return { error: `Flag ${key} does not exist in ${environment}` };
+
+    // The entry has to belong to this flag and environment: an id from elsewhere must not
+    // become a way to write a state that was never true here.
+    const entry = state().history.find(
+      (h) => h.id === historyId && h.key === key && h.environment === environment,
+    );
+    if (!entry) return { error: 'That history entry does not belong to this flag' };
+    if (environment === 'production' && !reason.trim()) {
+      return { error: 'Production flag changes require a reason' };
+    }
+
+    flag.enabled = entry.enabled;
+    flag.rolloutPercentage = entry.rolloutPercentage;
+    flag.targeting = structuredClone(entry.targeting) as FlagTargetingRule[];
+    flag.lastModifiedAt = new Date();
+    flag.lastModifiedBy = actorId;
+
+    recordChange(flag, actorId, reason, 'rollback');
+
+    return structuredClone(flag);
+  },
   getHistory(key: string, environment: FlagEnvironment): AdminFlagHistoryEntry[] {
     return state()
       .history
@@ -253,5 +348,9 @@ export const featureFlagConnector: FlagAdminConnector = {
 
 /** Resets mutable mock state between tests. Not part of the public connector contract. */
 export function resetMockFeatureFlags(): void {
-  (globalThis as StateHost)[STATE_KEY] = { flags: initialFlags(), history: initialHistory() };
+  (globalThis as StateHost)[STATE_KEY] = {
+    flags: initialFlags(),
+    history: initialHistory(),
+    nextHistoryId: 1,
+  };
 }

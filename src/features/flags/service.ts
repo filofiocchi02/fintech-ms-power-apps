@@ -13,7 +13,7 @@ import { parseOrAppError } from '@/lib/validation/zod';
 
 import type { AdminFeatureFlag, AdminFlagHistoryEntry, FlagAdminConnector } from './contracts';
 import { flagWriteDenial } from './permissions';
-import { flagChangeSchema, flagQuerySchema } from './schemas';
+import { flagChangeSchema, flagQuerySchema, type FlagChangeInput } from './schemas';
 
 /**
  * Server-side flag administration.
@@ -93,6 +93,7 @@ function snapshot(flag: AdminFeatureFlag) {
     environment: flag.environment,
     enabled: flag.enabled,
     rolloutPercentage: flag.rolloutPercentage,
+    targeting: flag.targeting.map((rule) => rule.cohort),
   };
 }
 
@@ -145,16 +146,7 @@ export async function applyFlagChange(
   }
 
   const reason = input.reason ?? '';
-  const result =
-    input.enabled !== undefined
-      ? deps.connector.setFlag(key, environment, input.enabled, actor.id, reason)
-      : deps.connector.setRollout(
-          key,
-          environment,
-          input.rolloutPercentage ?? before.rolloutPercentage,
-          actor.id,
-          reason,
-        );
+  const result = applyToConnector(deps, key, environment, input, actor.id, reason);
 
   if ('error' in result) {
     await deps.audit.emit({
@@ -194,6 +186,33 @@ export async function applyFlagChange(
   }
 
   return result;
+}
+
+/**
+ * One request, one dimension. The schema has already established that exactly one of them
+ * is present, so this only has to route it to the connector call that owns it.
+ */
+function applyToConnector(
+  deps: FlagDeps,
+  key: string,
+  environment: FlagEnvironment,
+  input: FlagChangeInput,
+  actorId: string,
+  reason: string,
+): AdminFeatureFlag | { error: string } {
+  if (input.enabled !== undefined) {
+    return deps.connector.setFlag(key, environment, input.enabled, actorId, reason);
+  }
+  if (input.rolloutPercentage !== undefined) {
+    return deps.connector.setRollout(key, environment, input.rolloutPercentage, actorId, reason);
+  }
+  if (input.targeting !== undefined) {
+    return deps.connector.setTargeting(key, environment, input.targeting, actorId, reason);
+  }
+  if (input.rollbackTo !== undefined) {
+    return deps.connector.rollbackTo(key, environment, input.rollbackTo, actorId, reason);
+  }
+  return { error: 'No change was requested' };
 }
 
 /** Production writes need a reason and the flag key typed back, both checked server-side. */
