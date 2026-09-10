@@ -14,7 +14,13 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
  */
 
 /** App workflow statuses for a KYC review. Provider verification state is NOT this. */
-export const KYC_WORKFLOW_STATUS = ['OPEN', 'IN_REVIEW', 'APPROVED', 'REJECTED'] as const;
+export const KYC_WORKFLOW_STATUS = [
+  'OPEN',
+  'IN_REVIEW',
+  'AWAITING_INFO',
+  'APPROVED',
+  'REJECTED',
+] as const;
 export type KycWorkflowStatus = (typeof KYC_WORKFLOW_STATUS)[number];
 
 /** App workflow statuses for a refund request. Payment execution state is NOT this. */

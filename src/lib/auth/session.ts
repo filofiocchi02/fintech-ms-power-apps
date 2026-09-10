@@ -2,9 +2,10 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { cookies } from 'next/headers';
 
-import { isKnownRole, ROLE_LABELS, type Role } from './roles';
+import type { Role } from './roles';
+import { getDemoUser } from './users';
 
-const DEMO_ROLE_COOKIE = 'demo-role';
+const DEMO_USER_COOKIE = 'demo-user';
 
 function getRoleSecret(): string {
   const secret = process.env.DEMO_ROLE_SECRET;
@@ -19,10 +20,10 @@ function getRoleSecret(): string {
 /**
  * Server-only identity resolution.
  *
- * The demo role is stored in a signed, server-readable cookie set exclusively by
- * POST /api/demo/role. The client never supplies the acting role in a request body,
+ * The demo user is stored in a signed, server-readable cookie set exclusively by
+ * POST /api/demo/role. The client never supplies the acting user in a request body,
  * query string, or JS cookie write — the server verifies the signature and resolves
- * capabilities from it.
+ * capabilities from the user's role.
  */
 export interface Actor {
   id: string;
@@ -30,19 +31,19 @@ export interface Actor {
   displayName: string;
 }
 
-function signRole(role: Role): string {
+function signUser(userId: string): string {
   const signature = createHmac('sha256', getRoleSecret())
-    .update(role)
+    .update(userId)
     .digest('base64url');
-  return `${role}.${signature}`;
+  return `${userId}.${signature}`;
 }
 
-function unsignRole(value: string): Role | null {
-  const [role, signature] = value.split('.', 2);
-  if (!role || !signature || !isKnownRole(role)) return null;
+function unsignUser(value: string): string | null {
+  const [userId, signature] = value.split('.', 2);
+  if (!userId || !signature || !getDemoUser(userId)) return null;
 
   const expected = createHmac('sha256', getRoleSecret())
-    .update(role)
+    .update(userId)
     .digest('base64url');
 
   try {
@@ -51,32 +52,33 @@ function unsignRole(value: string): Role | null {
     return null;
   }
 
-  return role;
+  return userId;
 }
 
 /**
- * Resolves the current actor from the signed demo role cookie. Returns `null` when the
+ * Resolves the current actor from the signed demo user cookie. Returns `null` when the
  * cookie is missing, malformed, or has an invalid signature.
  */
 export async function getCurrentUser(): Promise<Actor | null> {
   const jar = await cookies();
-  const raw = jar.get(DEMO_ROLE_COOKIE)?.value;
+  const raw = jar.get(DEMO_USER_COOKIE)?.value;
   if (!raw) return null;
 
-  const role = unsignRole(raw);
-  if (!role) return null;
+  const userId = unsignUser(raw);
+  const user = userId ? getDemoUser(userId) : null;
+  if (!user) return null;
 
   return {
-    id: `demo_${role}`,
-    role,
-    displayName: ROLE_LABELS[role],
+    id: user.id,
+    role: user.role,
+    displayName: user.name,
   };
 }
 
-/** Cookie attributes used when the RoleSwitcher changes role. */
+/** Cookie attributes used when the user picker changes who we act as. */
 export function roleCookieOptions() {
   return {
-    name: DEMO_ROLE_COOKIE,
+    name: DEMO_USER_COOKIE,
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict' as const,
@@ -85,7 +87,7 @@ export function roleCookieOptions() {
   };
 }
 
-/** Signs a role value so the route handler can set the cookie. */
-export function encodeRoleCookie(role: Role): string {
-  return signRole(role);
+/** Signs a user id so the route handler can set the cookie. */
+export function encodeUserCookie(userId: string): string {
+  return signUser(userId);
 }

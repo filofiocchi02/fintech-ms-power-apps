@@ -15,8 +15,8 @@ export default async function HomePage() {
       <section className="rounded border border-border-subtle bg-surface p-4">
         <h2 className="text-sm font-semibold">Getting started</h2>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted">
-          <li>Use the role switcher in the header to act as Support, Compliance, Release Engineer or Manager/Admin.</li>
-          <li>Each role sees only the apps it is authorised to open.</li>
+          <li>Use the user picker in the header to act as one of the demo users — each holds a role such as Compliance Analyst or Manager/Admin.</li>
+          <li>Each user&apos;s role sees only the apps it is authorised to open.</li>
           <li>Direct navigation or API calls to forbidden apps are blocked server-side.</li>
         </ol>
       </section>

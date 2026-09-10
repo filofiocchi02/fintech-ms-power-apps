@@ -7,6 +7,7 @@
 type Status =
   | 'OPEN'
   | 'IN_REVIEW'
+  | 'AWAITING_INFO'
   | 'APPROVED'
   | 'REJECTED'
   | 'PENDING_APPROVAL'
@@ -31,6 +32,7 @@ interface Props {
 const STYLES: Record<string, string> = {
   OPEN: 'bg-blue-50 text-blue-800 ring-blue-600/20',
   IN_REVIEW: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  AWAITING_INFO: 'bg-violet-50 text-violet-800 ring-violet-600/20',
   APPROVED: 'bg-green-50 text-green-800 ring-green-600/20',
   REJECTED: 'bg-red-50 text-red-800 ring-red-600/20',
   PENDING_APPROVAL: 'bg-amber-50 text-amber-800 ring-amber-600/20',

@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { KycEvidence, KycProviderConnector } from '../types';
 
-const EPOCH = Date.parse('2026-01-05T09:00:00.000Z');
+const EPOCH = Date.parse('2026-09-03T09:00:00.000Z');
 
 const CASES: KycEvidence[] = [
   {
@@ -64,6 +64,56 @@ const CASES: KycEvidence[] = [
     hasPepFlag: true,
     submittedAt: new Date(EPOCH - 120 * 60 * 60 * 1000),
     reviewedAt: new Date(EPOCH - 110 * 60 * 60 * 1000),
+  },
+  {
+    providerCaseRef: 'kyc_case_5007',
+    customerRef: 'cus_1007',
+    status: 'pending',
+    riskLevel: 'low',
+    hasSanctionsFlag: false,
+    hasPepFlag: false,
+    submittedAt: new Date(EPOCH - 20 * 60 * 60 * 1000),
+    reviewedAt: null,
+  },
+  {
+    providerCaseRef: 'kyc_case_5008',
+    customerRef: 'cus_1008',
+    status: 'pending',
+    riskLevel: 'medium',
+    hasSanctionsFlag: false,
+    hasPepFlag: true,
+    submittedAt: new Date(EPOCH - 44 * 60 * 60 * 1000),
+    reviewedAt: null,
+  },
+  {
+    providerCaseRef: 'kyc_case_5009',
+    customerRef: 'cus_1011',
+    status: 'pending',
+    riskLevel: 'high',
+    hasSanctionsFlag: true,
+    hasPepFlag: false,
+    submittedAt: new Date(EPOCH - 66 * 60 * 60 * 1000),
+    reviewedAt: null,
+  },
+  {
+    providerCaseRef: 'kyc_case_5010',
+    customerRef: 'cus_1010',
+    status: 'pending',
+    riskLevel: 'low',
+    hasSanctionsFlag: false,
+    hasPepFlag: false,
+    submittedAt: new Date(EPOCH - 10 * 60 * 60 * 1000),
+    reviewedAt: null,
+  },
+  {
+    providerCaseRef: 'kyc_case_5011',
+    customerRef: 'cus_1009',
+    status: 'pending',
+    riskLevel: 'medium',
+    hasSanctionsFlag: false,
+    hasPepFlag: false,
+    submittedAt: new Date(EPOCH - 32 * 60 * 60 * 1000),
+    reviewedAt: null,
   },
 ];
 

@@ -18,8 +18,28 @@ export const kycDecisionSchema = z.object({
   expectedVersion: version,
 });
 
+/** Claiming moves the assignee only; the version guards a concurrent claim or decision. */
+export const kycClaimSchema = z.object({
+  expectedVersion: version,
+});
+
+/** Escalation always carries a reason: the receiving tier needs to know why it was handed up. */
+export const kycEscalateSchema = z.object({
+  reason,
+  expectedVersion: version,
+});
+
+/** An information request always says what is needed — the customer sees the reason. */
+export const kycRequestInfoSchema = z.object({
+  reason,
+  expectedVersion: version,
+});
+
 export type KycQueueFiltersInput = z.infer<typeof kycQueueFiltersSchema>;
 export type KycDecisionInput = z.infer<typeof kycDecisionSchema>;
+export type KycClaimInput = z.infer<typeof kycClaimSchema>;
+export type KycEscalateInput = z.infer<typeof kycEscalateSchema>;
+export type KycRequestInfoInput = z.infer<typeof kycRequestInfoSchema>;
 
 /** Drops blank query-string values so `?status=` behaves like an absent filter. */
 export function queryToFilterInput(params: URLSearchParams): Record<string, string> {

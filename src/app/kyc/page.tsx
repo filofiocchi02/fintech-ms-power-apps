@@ -63,6 +63,7 @@ export default async function KycPage({ searchParams }: Props) {
         <QueueFilters
           countries={[...new Set(allCases.map((item) => item.country))].sort()}
           assignees={[...new Set(allCases.map((item) => item.assigneeId).filter((id): id is string => id !== null))].sort()}
+          meId={guard.actor.id}
         />
       )}
 

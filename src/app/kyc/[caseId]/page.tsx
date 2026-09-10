@@ -12,10 +12,11 @@ import { DecisionPanel } from '@/features/kyc/components/DecisionPanel';
 import { EvidencePanel } from '@/features/kyc/components/EvidencePanel';
 import { formatAge } from '@/features/kyc/components/QueueTable';
 import { FlagBadge, RiskBadge } from '@/features/kyc/components/RiskBadge';
-import { canOverrideSanctions, canReviewKyc } from '@/features/kyc/authorization';
+import { canAssignKyc, canOverrideSanctions, canReviewKyc, escalationTargetAssigneeId } from '@/features/kyc/authorization';
 import { kycDeps } from '@/features/kyc/deps';
 import { getCaseDetail, outstandingDocuments, requiresSanctionsOverride } from '@/features/kyc/service';
 import { requireAppAccessOrDenied } from '@/lib/auth/guards';
+import { demoUserName } from '@/lib/auth/users';
 import { isAppError } from '@/lib/errors/errors';
 
 interface Props {
@@ -89,10 +90,16 @@ export default async function KycCasePage({ params }: Props) {
             <KeyValueList
               items={[
                 { label: 'Workflow status', value: <StatusBadge status={workflow.status} /> },
-                { label: 'Assignee', value: workflow.assigneeId ?? 'Unassigned' },
+                {
+                  label: 'Assignee',
+                  value: workflow.assigneeId ? demoUserName(workflow.assigneeId) : 'Unassigned',
+                },
                 { label: 'Age', value: formatAge(queueItem.ageHours) },
                 { label: 'Opened', value: workflow.openedAt.toLocaleString() },
-                { label: 'Decided by', value: workflow.decidedBy ?? '—' },
+                {
+                  label: 'Decided by',
+                  value: workflow.decidedBy ? demoUserName(workflow.decidedBy) : '—',
+                },
                 { label: 'Decision reason', value: workflow.decisionReason ?? '—' },
               ]}
             />
@@ -108,7 +115,13 @@ export default async function KycCasePage({ params }: Props) {
               caseId={workflow.id}
               version={workflow.version}
               decided={decided}
+              awaitingInfo={workflow.status === 'AWAITING_INFO'}
               canDecide={canReviewKyc(guard.actor.role)}
+              canAssign={canAssignKyc(guard.actor.role)}
+              canTakeOver={canOverrideSanctions(guard.actor.role)}
+              canEscalate={escalationTargetAssigneeId(guard.actor.role) !== null}
+              assigneeId={workflow.assigneeId}
+              actorId={guard.actor.id}
               approvalBlockedReason={approvalBlockedReason}
             />
           </DetailPanel>

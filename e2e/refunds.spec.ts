@@ -68,13 +68,24 @@ function errorsOn(page: Page) {
   };
 }
 
+/** The default demo user's display name for each role (two analysts share Compliance). */
+const USER_NAME_BY_ROLE: Record<string, string> = {
+  support: 'Sam Whitfield',
+  compliance: 'Casey Nwosu',
+  'release-engineer': 'Riley Park',
+  'manager-admin': 'Morgan Hale',
+};
+
 async function role(page: Page, value: string) {
-  if (await page.getByLabel('Act as role').inputValue() === value) return;
+  const name = USER_NAME_BY_ROLE[value];
+  const trigger = page.getByRole('button', { name: 'Act as user' });
+  if ((await trigger.innerText()).includes(name)) return;
+  await trigger.click();
   await Promise.all([
     page.waitForEvent('load'),
-    page.getByLabel('Act as role').selectOption(value),
+    page.getByRole('option', { name: new RegExp(name) }).click(),
   ]);
-  await expect(page.getByLabel('Act as role')).toHaveValue(value);
+  await expect(trigger).toContainText(name);
 }
 
 async function detail(page: Page, ref: string): Promise<TransactionDetail> {
@@ -385,7 +396,7 @@ test('large request pending, support denied, manager approves once and rejects',
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(dialog).not.toBeVisible();
   const approved = await detail(page, 'pay_9002');
-  expect(approved.cases[0]).toMatchObject({ status: 'EXECUTED', approvedBy: 'demo_manager-admin', amountMinor: 60000 });
+  expect(approved.cases[0]).toMatchObject({ status: 'EXECUTED', approvedBy: 'user_morgan', amountMinor: 60000 });
   expect(approved.cases[0].executionRef).toBeTruthy();
   expect(accepted(approved).map((a) => a.action).sort()).toEqual(['refunds:approve', 'refunds:execute', 'refunds:request']);
   expect.soft(approved.transaction.refundableMinor).toBe(65000);

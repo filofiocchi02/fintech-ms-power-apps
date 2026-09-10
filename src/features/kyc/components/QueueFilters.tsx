@@ -7,10 +7,13 @@ import { useState, useTransition } from 'react';
 import { FilterBar } from '@/components/internal-tools/FilterBar';
 import { SearchInput } from '@/components/internal-tools/SearchInput';
 import { KYC_WORKFLOW_STATUS } from '@/db/schema';
+import { demoUserName } from '@/lib/auth/users';
 
 interface Props {
   countries: string[];
   assignees: string[];
+  /** Current actor id, so the assignee filter can offer "Assigned to me". */
+  meId: string;
 }
 
 const RISK_LEVELS = ['low', 'medium', 'high'] as const;
@@ -19,7 +22,7 @@ const RISK_LEVELS = ['low', 'medium', 'high'] as const;
  * Filters are held in the URL, not in component state, so the server re-runs the query and
  * a filtered queue can be linked to or reloaded. Filters combine.
  */
-export function QueueFilters({ countries, assignees }: Props) {
+export function QueueFilters({ countries, assignees, meId }: Props) {
   const router = useRouter();
   const params = useSearchParams();
   const [pending, startTransition] = useTransition();
@@ -98,10 +101,14 @@ export function QueueFilters({ countries, assignees }: Props) {
         <Select
           label="Assignee"
           name="assignee"
-          value={params.get('assignee') ?? ''}
+          // A shared link may name the acting user explicitly; that is 'me' for them.
+          value={params.get('assignee') === meId ? 'me' : (params.get('assignee') ?? '')}
           options={[
+            { value: 'me', label: 'Assigned to me' },
             { value: 'unassigned', label: 'Unassigned' },
-            ...assignees.map((assignee) => ({ value: assignee, label: assignee })),
+            ...assignees
+              .filter((assignee) => assignee !== meId)
+              .map((assignee) => ({ value: assignee, label: demoUserName(assignee) })),
           ]}
           onChange={(value) => setParam('assignee', value)}
         />

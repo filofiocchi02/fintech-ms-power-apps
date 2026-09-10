@@ -14,8 +14,8 @@ export function AccessDenied({ actor, requiredApp }: Props) {
         <h1 className="text-lg font-semibold">Access denied</h1>
         <p className="mt-2 text-muted">
           {actor
-            ? `${roleLabel} does not have access to ${requiredApp ?? 'this tool'}.`
-            : 'Select a role using the switcher in the header.'}
+            ? `${actor.displayName} (${roleLabel}) does not have access to ${requiredApp ?? 'this tool'}.`
+            : 'Select a user in the header picker.'}
         </p>
       </div>
     </main>

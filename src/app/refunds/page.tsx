@@ -15,6 +15,7 @@ import { formatMoney } from '@/features/refunds/money';
 import { getRefundService } from '@/features/refunds/server';
 import type { RefundCaseSummary, TransactionSummary } from '@/features/refunds/service';
 import { requireAppAccessOrDenied } from '@/lib/auth/guards';
+import { demoUserName } from '@/lib/auth/users';
 
 export const dynamic = 'force-dynamic';
 
@@ -173,7 +174,7 @@ export default async function RefundsPage({ searchParams }: Props) {
                     </span>
                   ),
                 },
-                { header: 'Requested by', render: (row) => <span className="text-xs">{row.requestedBy}</span> },
+                { header: 'Requested by', render: (row) => <span className="text-xs">{demoUserName(row.requestedBy)}</span> },
                 {
                   header: 'Decision',
                   align: 'right',

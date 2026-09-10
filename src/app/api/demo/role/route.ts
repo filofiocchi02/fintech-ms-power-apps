@@ -1,16 +1,16 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-import { roleCookieOptions, encodeRoleCookie } from '@/lib/auth/session';
-import { parseDemoRole } from '@/lib/auth/guards';
+import { roleCookieOptions, encodeUserCookie } from '@/lib/auth/session';
+import { parseDemoUser } from '@/lib/auth/users';
 import { isAppError } from '@/lib/errors/errors';
 import { errorResponse, successResponse } from '@/lib/validation/api';
 
 /**
  * POST /api/demo/role
  *
- * Sets the signed, server-readable demo role cookie. The client never writes the cookie
- * directly and never sends the role in request bodies to app routes; the server verifies
+ * Sets the signed, server-readable demo user cookie. The client never writes the cookie
+ * directly and never sends the user in request bodies to app routes; the server verifies
  * the signature and re-reads it from the jar on every request.
  */
 export async function POST(request: Request) {
@@ -24,14 +24,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const roleOrError = parseDemoRole(body);
-  if (isAppError(roleOrError)) {
-    return NextResponse.json(errorResponse(roleOrError), { status: roleOrError.status });
+  const userOrError = parseDemoUser(body);
+  if (isAppError(userOrError)) {
+    return NextResponse.json(errorResponse(userOrError), { status: userOrError.status });
   }
 
   const options = roleCookieOptions();
   const jar = await cookies();
-  jar.set(options.name, encodeRoleCookie(roleOrError), {
+  jar.set(options.name, encodeUserCookie(userOrError.id), {
     httpOnly: options.httpOnly,
     secure: options.secure,
     sameSite: options.sameSite,
@@ -39,5 +39,5 @@ export async function POST(request: Request) {
     maxAge: options.maxAge,
   });
 
-  return NextResponse.json(successResponse({ role: roleOrError }), { status: 200 });
+  return NextResponse.json(successResponse({ user: userOrError }), { status: 200 });
 }
