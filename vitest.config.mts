@@ -1,10 +1,19 @@
+import { resolve } from 'node:path';
+
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+
+const __dirname = import.meta.dirname;
 
 export default defineConfig({
   plugins: [react()],
   // Resolves the `@/*` alias from tsconfig.json natively (no vite-tsconfig-paths needed).
-  resolve: { tsconfigPaths: true },
+  resolve: {
+    tsconfigPaths: true,
+    alias: {
+      'server-only': resolve(__dirname, './src/tests/mocks/server-only.ts'),
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/tests/setup.ts'],
