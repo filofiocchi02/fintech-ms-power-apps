@@ -27,7 +27,6 @@ describe('role and capability model', () => {
     expect(canAccessApp('support', 'refunds')).toBe(true);
     expect(canAccessApp('support', 'kyc')).toBe(false);
     expect(canAccessApp('support', 'flags')).toBe(false);
-    expect(canAccessApp('support', 'audit')).toBe(false);
   });
 
   it('maps Compliance to kyc only', () => {
@@ -41,7 +40,7 @@ describe('role and capability model', () => {
     expect(canAccessApp('release-engineer', 'kyc')).toBe(false);
   });
 
-  it('grants Manager/Admin every app including audit', () => {
+  it('grants Manager/Admin every app', () => {
     for (const app of APPS) {
       expect(canAccessApp('manager-admin', app)).toBe(true);
     }
@@ -103,7 +102,7 @@ describe('server guards', () => {
     // actor object in a unit test still follows the role mapping; the point is the route
     // never reads a role from the request body.
     const forged = actor('manager-admin', 'client_forged_id');
-    expect(requireApiAppAccess(forged, 'audit').success).toBe(true);
+    expect(requireApiAppAccess(forged, 'platform').success).toBe(true);
   });
 });
 

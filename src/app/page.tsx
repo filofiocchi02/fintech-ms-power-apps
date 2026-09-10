@@ -3,7 +3,7 @@ import { PageHeader } from '@/components/internal-tools/PageHeader';
 
 /**
  * Console home. No tool state here — this page is the launch pad and a compile-safe anchor
- * for the shared shell. Each tool gets its own route under /kyc, /refunds, /flags and /audit.
+ * for the shared shell. Each tool gets its own route under /kyc, /refunds and /flags.
  */
 export default async function HomePage() {
   return (
