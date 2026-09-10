@@ -76,8 +76,23 @@ describe('PaymentsConnector', () => {
     expect(tx?.refundableMinor).toBe(4000);
   });
 
-  it('keeps financial invariants in the connector, not the route', () => {
-    // Only the payments system knows the refundable balance; the internal tool never mirrors it.
+  it('detects an idempotency key reused for a different refund without mutation', () => {
+    const first = paymentsConnector.executeRefund('pay_9001', 1000, 'idem_mismatch');
+    expect('error' in first).toBe(false);
+
+    const second = paymentsConnector.executeRefund('pay_9002', 5000, 'idem_mismatch');
+    expect(second).toEqual({ error: 'Idempotency key conflict' });
+
+    // pay_9002 must not have been touched.
+    expect(paymentsConnector.getTransaction('pay_9002')?.refundableMinor).toBe(125000);
+  });
+
+  it('returns defensive copies that cannot mutate the ledger', () => {
+    const tx = paymentsConnector.getTransaction('pay_9001');
+    expect(tx).not.toBeNull();
+    if (!tx) throw new Error('unexpected');
+    tx.refundableMinor = 0;
+
     expect(paymentsConnector.getTransaction('pay_9001')?.refundableMinor).toBe(5000);
   });
 });

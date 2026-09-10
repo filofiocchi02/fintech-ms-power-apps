@@ -51,16 +51,20 @@ function initialFlags(): FeatureFlag[] {
 let flags: FeatureFlag[] = initialFlags();
 const history: FeatureFlagHistoryEntry[] = [];
 
-function getFlag(key: string, environment: FlagEnvironment): FeatureFlag | null {
-  return flags.find((f) => f.key === key && f.environment === environment) ?? null;
+function findFlag(key: string, environment: FlagEnvironment): FeatureFlag | undefined {
+  return flags.find((f) => f.key === key && f.environment === environment);
 }
 
 export const featureFlagConnector: FeatureFlagConnector = {
-  getFlag,
+  getFlag(key: string, environment: FlagEnvironment): FeatureFlag | null {
+    const flag = findFlag(key, environment);
+    return flag ? structuredClone(flag) : null;
+  },
   listFlags(environment: FlagEnvironment): FeatureFlag[] {
     return flagKeys
-      .map((key) => getFlag(key, environment))
-      .filter((f): f is FeatureFlag => f !== null);
+      .map((key) => findFlag(key, environment))
+      .filter((f): f is FeatureFlag => f != null)
+      .map((f) => structuredClone(f));
   },
   setFlag(
     key: string,
@@ -69,7 +73,7 @@ export const featureFlagConnector: FeatureFlagConnector = {
     actorId: string,
     reason: string,
   ): FeatureFlag | { error: string } {
-    const flag = getFlag(key, environment);
+    const flag = findFlag(key, environment);
     if (!flag) return { error: `Flag ${key} does not exist in ${environment}` };
     if (environment === 'production' && !reason.trim()) {
       return { error: 'Production flag changes require a reason' };
@@ -88,10 +92,12 @@ export const featureFlagConnector: FeatureFlagConnector = {
       changedAt: new Date(),
     });
 
-    return flag;
+    return structuredClone(flag);
   },
   getHistory(key: string, environment: FlagEnvironment): FeatureFlagHistoryEntry[] {
-    return history.filter((h) => h.key === key && h.environment === environment);
+    return history
+      .filter((h) => h.key === key && h.environment === environment)
+      .map((h) => structuredClone(h));
   },
 };
 

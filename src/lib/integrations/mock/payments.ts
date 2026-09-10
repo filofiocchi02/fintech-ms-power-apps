@@ -65,28 +65,43 @@ function initialTransactions(): PaymentTransaction[] {
 
 // Mutable in-memory ledger for this prototype. Production replaces this with a real PSP connector.
 let transactions: PaymentTransaction[] = initialTransactions();
-const executedRefunds = new Map<string, RefundResult>();
 
-function getTransaction(paymentRef: string): PaymentTransaction | null {
-  return transactions.find((t) => t.paymentRef === paymentRef) ?? null;
+interface CachedRefund {
+  paymentRef: string;
+  amountMinor: number;
+  result: RefundResult;
+}
+
+const executedRefunds = new Map<string, CachedRefund>();
+
+function findTransaction(paymentRef: string): PaymentTransaction | undefined {
+  return transactions.find((t) => t.paymentRef === paymentRef);
 }
 
 export const paymentsConnector: PaymentsConnector = {
-  getTransaction,
+  getTransaction(paymentRef: string): PaymentTransaction | null {
+    const tx = findTransaction(paymentRef);
+    return tx ? structuredClone(tx) : null;
+  },
   listRefundableTransactions(): PaymentTransaction[] {
-    return transactions.filter((t) => t.refundableMinor > 0);
+    return transactions
+      .filter((t) => t.refundableMinor > 0)
+      .map((t) => structuredClone(t));
   },
   executeRefund(paymentRef: string, amountMinor: number, idempotencyKey: string): RefundResult | { error: string } {
-    const existing = executedRefunds.get(idempotencyKey);
-    if (existing) {
-      return existing;
-    }
-
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
       return { error: 'Refund amount must be a positive integer' };
     }
 
-    const tx = getTransaction(paymentRef);
+    const cached = executedRefunds.get(idempotencyKey);
+    if (cached) {
+      if (cached.paymentRef !== paymentRef || cached.amountMinor !== amountMinor) {
+        return { error: 'Idempotency key conflict' };
+      }
+      return structuredClone(cached.result);
+    }
+
+    const tx = findTransaction(paymentRef);
     if (!tx) return { error: 'Transaction not found' };
     if (tx.status !== 'captured') return { error: 'Transaction is not refundable' };
     if (amountMinor > tx.refundableMinor) return { error: 'Refund exceeds refundable balance' };
@@ -101,8 +116,8 @@ export const paymentsConnector: PaymentsConnector = {
       refundedMinor: amountMinor,
       currency: tx.currency,
     };
-    executedRefunds.set(idempotencyKey, result);
-    return result;
+    executedRefunds.set(idempotencyKey, { paymentRef, amountMinor, result });
+    return structuredClone(result);
   },
 };
 

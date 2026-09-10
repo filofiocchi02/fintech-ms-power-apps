@@ -5,7 +5,16 @@ import { cookies } from 'next/headers';
 import { isKnownRole, ROLE_LABELS, type Role } from './roles';
 
 const DEMO_ROLE_COOKIE = 'demo-role';
-const DEMO_ROLE_SECRET = process.env.DEMO_ROLE_SECRET ?? 'dev-only-not-a-secret';
+
+function getRoleSecret(): string {
+  const secret = process.env.DEMO_ROLE_SECRET;
+  if (!secret && process.env.NODE_ENV === 'production') {
+    throw new Error('DEMO_ROLE_SECRET environment variable is required in production');
+  }
+  // A dev-only default is acceptable for local prototyping because the cookie is never
+  // trusted in production without an explicit secret.
+  return secret ?? 'dev-only-not-a-secret';
+}
 
 /**
  * Server-only identity resolution.
@@ -22,7 +31,7 @@ export interface Actor {
 }
 
 function signRole(role: Role): string {
-  const signature = createHmac('sha256', DEMO_ROLE_SECRET)
+  const signature = createHmac('sha256', getRoleSecret())
     .update(role)
     .digest('base64url');
   return `${role}.${signature}`;
@@ -32,7 +41,7 @@ function unsignRole(value: string): Role | null {
   const [role, signature] = value.split('.', 2);
   if (!role || !signature || !isKnownRole(role)) return null;
 
-  const expected = createHmac('sha256', DEMO_ROLE_SECRET)
+  const expected = createHmac('sha256', getRoleSecret())
     .update(role)
     .digest('base64url');
 

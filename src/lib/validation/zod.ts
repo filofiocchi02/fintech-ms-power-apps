@@ -7,8 +7,8 @@ import { z } from 'zod';
  * messages and coercion behaviour identical across apps.
  */
 
-/** Minor-unit money amount (pence). Rejects floats. */
-export const amountMinor = z.coerce.number().int().nonnegative();
+/** Minor-unit money amount (pence). Rejects floats and zero. */
+export const amountMinor = z.coerce.number().int().positive();
 
 /** ISO 4217 currency code, uppercased. */
 export const currency = z.string().min(3).max(3).toUpperCase();

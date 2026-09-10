@@ -132,6 +132,43 @@ describe('WorkflowRepository and AuditSink', () => {
     expect(history[0].id).toBe(event.id);
   });
 
+  it('clears approvedAt when approvedBy is set to null', () => {
+    repo.createRefundCase({
+      id: 'rfwf_clear_1',
+      paymentRef: 'pay_clear_1',
+      customerRef: 'cus_clear_1',
+      amountMinor: 1000,
+      currency: 'GBP',
+      reason: 'Test',
+      idempotencyKey: 'idem_clear_1',
+      status: 'PENDING_APPROVAL',
+      requestedBy: 'user_support_1',
+      requestedAt: new Date(0),
+      approvedBy: null,
+      approvedAt: null,
+      decisionReason: null,
+      executionRef: null,
+      updatedAt: new Date(0),
+    });
+
+    const approve = repo.updateRefundCase('rfwf_clear_1', {
+      status: 'APPROVED',
+      approvedBy: 'user_manager_1',
+      expectedVersion: 1,
+    });
+    expect(approve.success).toBe(true);
+    if (!approve.success) throw new Error('unexpected');
+    expect(approve.row.approvedAt).not.toBeNull();
+
+    const revoke = repo.updateRefundCase('rfwf_clear_1', {
+      approvedBy: null,
+      expectedVersion: 2,
+    });
+    expect(revoke.success).toBe(true);
+    if (!revoke.success) throw new Error('unexpected');
+    expect(revoke.row.approvedAt).toBeNull();
+  });
+
   it('records denied audit events separately from accepted ones', async () => {
     await sink.emit({
       app: 'refunds',

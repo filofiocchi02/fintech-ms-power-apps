@@ -132,9 +132,14 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
         return { success: false, error: { kind: 'NOT_FOUND' } };
       }
 
-      const approvedAt = update.approvedBy
-        ? (update.approvedAt ?? new Date())
-        : existing.approvedAt;
+      const approvedAt =
+        update.approvedAt !== undefined
+          ? update.approvedAt
+          : update.approvedBy === null
+            ? null
+            : update.approvedBy
+              ? new Date()
+              : existing.approvedAt;
 
       const updateResult = db
         .update(refundCaseWorkflow)
