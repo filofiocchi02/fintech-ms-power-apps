@@ -55,9 +55,11 @@ export function FlagDetail({ detail, actor }: Props) {
 
       <DetailPanel title="Change flag">
         <FlagChangeForm
-          // A different flag or environment is a different form: never carry a typed rollout,
-          // reason or confirmation from the previous one.
-          key={`${flag.environment}:${flag.key}`}
+          // The form edits a copy of the flag's current values, so it is rebuilt whenever those
+          // values change: a different flag, a different environment, or a change that landed —
+          // including one made elsewhere. Editing in progress survives, since nothing the
+          // operator types moves the authoritative timestamp.
+          key={`${flag.environment}:${flag.key}:${flag.lastModifiedAt.toISOString()}`}
           flagKey={flag.key}
           environment={flag.environment}
           enabled={flag.enabled}

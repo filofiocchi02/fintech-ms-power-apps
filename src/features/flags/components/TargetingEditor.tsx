@@ -50,25 +50,25 @@ export function TargetingEditor({ targeting, submitting, onApply }: Props) {
       ) : (
         <ul className="flex flex-col gap-2">
           {rules.map((rule, index) => (
-            <li key={index} className="flex flex-wrap items-center gap-2">
+            <li key={index} className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 aria-label={`Cohort ${index + 1}`}
                 value={rule.cohort}
                 onChange={(event) => update(index, { cohort: event.target.value })}
                 placeholder="cohort-name"
-                className="w-44 rounded border border-border-subtle bg-surface px-3 py-1.5 text-sm text-foreground focus:border-blue-600 focus:outline-none"
+                className="w-full rounded sm:w-44 border border-border-subtle bg-surface px-3 py-1.5 text-sm text-foreground focus:border-blue-600 focus:outline-none"
               />
               <input
                 aria-label={`Cohort ${index + 1} description`}
                 value={rule.description}
                 onChange={(event) => update(index, { description: event.target.value })}
                 placeholder="Who this covers"
-                className="min-w-0 flex-1 rounded border border-border-subtle bg-surface px-3 py-1.5 text-sm text-foreground focus:border-blue-600 focus:outline-none"
+                className="w-full min-w-0 rounded sm:flex-1 border border-border-subtle bg-surface px-3 py-1.5 text-sm text-foreground focus:border-blue-600 focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => setRules((current) => current.filter((_, i) => i !== index))}
-                className="rounded border border-border-subtle px-2 py-1.5 text-sm text-foreground hover:bg-surface-muted"
+                className="self-start rounded border border-border-subtle px-2 py-1.5 text-sm text-foreground hover:bg-surface-muted sm:self-auto"
               >
                 Remove
               </button>

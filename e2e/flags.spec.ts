@@ -150,6 +150,10 @@ test.describe('feature flag administration', () => {
 
     await expect(page.getByText('Undo the beta cohort').first()).toBeVisible();
     await expect(page.getByText('Opted-in tenants')).toHaveCount(0);
+    // The editor edits the current flag, so a landed change resets it: a restored state must
+    // not leave the removed cohort sitting in the form ready to be applied again.
+    await expect(page.getByLabel(/^Cohort 2$/)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Update targeting' })).toBeDisabled();
 
     expect(errors).toEqual([]);
   });
