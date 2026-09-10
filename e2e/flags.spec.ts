@@ -56,6 +56,8 @@ test.describe('feature flag administration', () => {
     await actAsRole(page, 'release-engineer');
     await page.goto('/flags');
 
+    // The environment is never implicit: a bare /flags is sent back with it spelled out.
+    await expect(page).toHaveURL(/\/flags\?env=dev/);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Feature Flag');
     await expect(page.getByRole('link', { name: FLAG_KEY, exact: true })).toBeVisible();
 
@@ -94,6 +96,20 @@ test.describe('feature flag administration', () => {
     await expect(page.getByText('Browser verification of the dev toggle').first()).toBeVisible();
 
     expect(errors).toEqual([]);
+  });
+
+  test('form state does not follow the operator to another flag or environment', async ({ page }) => {
+    await actAsRole(page, 'manager-admin');
+    await page.goto(`/flags?env=dev&key=${FLAG_KEY}`);
+
+    const rollout = page.getByLabel('Rollout percentage');
+    await rollout.fill('7');
+    await page.getByRole('link', { name: 'Staging' }).click();
+    await expect(rollout).not.toHaveValue('7');
+
+    // A cleared field is not zero; it is nothing, and nothing cannot be applied.
+    await rollout.fill('');
+    await expect(page.getByRole('button', { name: 'Update rollout' })).toBeDisabled();
   });
 
   test('release engineer cannot write production, in the UI or through the API', async ({ page }) => {

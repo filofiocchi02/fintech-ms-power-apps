@@ -42,10 +42,19 @@ export default async function FlagsPage({ searchParams }: Props) {
   }
 
   const params = await searchParams;
-  const parsedEnvironment = flagEnvironmentSchema.safeParse(readParam(params, 'env'));
-  const environment: FlagEnvironment = parsedEnvironment.success ? parsedEnvironment.data : 'dev';
   const query = readParam(params, 'q');
   const requestedKey = readParam(params, 'key');
+
+  // The environment an operator is acting on is never implied. A URL without a usable one is
+  // sent back with dev spelled out, so what is on screen and what is in the address bar agree.
+  const parsedEnvironment = flagEnvironmentSchema.safeParse(readParam(params, 'env'));
+  if (!parsedEnvironment.success) {
+    const target = new URLSearchParams({ env: 'dev' });
+    if (query) target.set('q', query);
+    if (requestedKey) target.set('key', requestedKey);
+    redirect(`/flags?${target.toString()}`);
+  }
+  const environment: FlagEnvironment = parsedEnvironment.data;
 
   const deps = flagDeps();
   const list = listFlags(deps, { environment, q: query || undefined });

@@ -52,7 +52,7 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
   }
 
   async function submit() {
-    if (!pending) return;
+    if (!pending || submitting) return;
     setSubmitting(true);
     setError(null);
 
@@ -71,21 +71,25 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
         | { success: true }
         | { success: false; error: { message: string } };
 
+      // The dialog closes either way: the message belongs on the page behind it, and a
+      // dialog left open after a rejected change is easy to submit again by accident.
+      closeDialog();
+
       if (!payload.success) {
         setError(payload.error.message);
         return;
       }
 
-      closeDialog();
       router.refresh();
     } catch {
+      closeDialog();
       setError('The change could not be sent. Check your connection and try again.');
     } finally {
       setSubmitting(false);
     }
   }
 
-  const parsedRollout = Number(rollout);
+  const parsedRollout = rollout.trim() === '' ? Number.NaN : Number(rollout);
   const rolloutValid =
     Number.isInteger(parsedRollout) && parsedRollout >= 0 && parsedRollout <= 100;
 
@@ -148,6 +152,9 @@ export function FlagChangeForm({ flagKey, environment, enabled, rolloutPercentag
         title={isProduction ? `Change ${flagKey} in production` : `Change ${flagKey} in ${environment}`}
         description={describeChange(flagKey, environment, pending)}
         confirmLabel={submitting ? 'Applying…' : 'Apply change'}
+        // Re-mounting on each open clears the native dialog's confirm latch, so a rejected
+        // change never leaves it stuck half-open.
+        key={pending === null ? 'closed' : 'open'}
         destructive={isProduction}
         reasonInput={{
           label: 'Reason',

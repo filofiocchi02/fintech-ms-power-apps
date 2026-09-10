@@ -197,6 +197,31 @@ describe('non-production changes', () => {
     expect(auditRows().filter((row) => row.outcome === 'ACCEPTED')).toHaveLength(0);
   });
 
+  it('reports an applied change whose audit write failed as applied, not as a failure', async () => {
+    actAs('release-engineer');
+    const audit = state.deps!.audit;
+    state.deps = {
+      connector: featureFlagConnector,
+      audit: {
+        ...audit,
+        emit: async (event) => {
+          if (event.outcome === 'ACCEPTED') throw new Error('audit sink unavailable');
+          return audit.emit(event);
+        },
+      },
+    };
+
+    const response = await patch(FLAG_KEY, { environment: 'dev', enabled: false });
+
+    // The flag moved, so the operator must not be told to retry.
+    expect(response.status).toBe(500);
+    expect(featureFlagConnector.getFlag(FLAG_KEY, 'dev')?.enabled).toBe(false);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('Do not retry') },
+    });
+  });
+
   it('changes one dimension per request', async () => {
     actAs('release-engineer');
 

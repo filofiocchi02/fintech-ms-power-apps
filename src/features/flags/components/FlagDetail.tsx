@@ -54,6 +54,9 @@ export function FlagDetail({ detail, actor }: Props) {
 
       <DetailPanel title="Change flag">
         <FlagChangeForm
+          // A different flag or environment is a different form: never carry a typed rollout,
+          // reason or confirmation from the previous one.
+          key={`${flag.environment}:${flag.key}`}
           flagKey={flag.key}
           environment={flag.environment}
           enabled={flag.enabled}

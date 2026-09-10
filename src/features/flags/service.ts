@@ -1,6 +1,7 @@
 import type { Actor } from '@/lib/auth/session';
 import {
   conflictError,
+  internalError,
   isAppError,
   notFoundError,
   validationError,
@@ -170,18 +171,27 @@ export async function applyFlagChange(
     return conflictError(result.error);
   }
 
-  await deps.audit.emit({
-    app: 'flags',
-    action: 'flags:write',
-    actorId: actor.id,
-    actorRole: actor.role,
-    subjectType: AUDIT_SUBJECT_TYPE,
-    subjectRef,
-    outcome: 'ACCEPTED',
-    reason: reason || undefined,
-    before: snapshot(before),
-    after: snapshot(result),
-  });
+  // The flag system has already applied the change, so a failed audit write cannot be
+  // reported as a failed change: that invites a retry that would move the flag twice. Say
+  // what actually happened instead — the change stands, the audit record is missing.
+  try {
+    await deps.audit.emit({
+      app: 'flags',
+      action: 'flags:write',
+      actorId: actor.id,
+      actorRole: actor.role,
+      subjectType: AUDIT_SUBJECT_TYPE,
+      subjectRef,
+      outcome: 'ACCEPTED',
+      reason: reason || undefined,
+      before: snapshot(before),
+      after: snapshot(result),
+    });
+  } catch {
+    return internalError(
+      'The change was applied by the flag system but could not be recorded in the audit log. Do not retry; check the flag system history.',
+    );
+  }
 
   return result;
 }
