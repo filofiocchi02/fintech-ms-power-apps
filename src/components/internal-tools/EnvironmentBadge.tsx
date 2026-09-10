@@ -1,6 +1,6 @@
 import type { FlagEnvironment } from '@/lib/integrations/types';
 
-type Environment = FlagEnvironment | 'production' | 'prod' | 'staging' | 'dev';
+type Environment = FlagEnvironment | 'production' | 'prod' | 'staging' | 'dev' | 'unknown';
 
 interface Props {
   environment: Environment;
@@ -12,6 +12,7 @@ const STYLES: Record<string, string> = {
   staging: 'bg-amber-50 text-amber-800 ring-amber-600/20',
   production: 'bg-red-50 text-red-800 ring-red-600/20',
   prod: 'bg-red-50 text-red-800 ring-red-600/20',
+  unknown: 'bg-gray-100 text-gray-800 ring-gray-600/20',
 };
 
 const LABELS: Record<string, string> = {
@@ -20,6 +21,7 @@ const LABELS: Record<string, string> = {
   staging: 'staging',
   production: 'production',
   prod: 'production',
+  unknown: 'unknown',
 };
 
 export function EnvironmentBadge({ environment }: Props) {

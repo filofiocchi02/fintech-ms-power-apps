@@ -69,6 +69,42 @@ describe('WorkflowRepository and AuditSink', () => {
     expect(conflict.error.kind).toBe('OPTIMISTIC_CONCURRENCY');
   });
 
+  it('clears KYC decision metadata when a decided case is reopened', () => {
+    const row = repo.createKycCase({
+      id: 'kycwf_reopen_1',
+      providerCaseRef: 'kyc_case_reopen_1',
+      customerRef: 'cus_reopen_1',
+      status: 'OPEN',
+      assigneeId: null,
+      openedAt: new Date(0),
+      updatedAt: new Date(0),
+      decisionReason: null,
+      decidedBy: null,
+      decidedAt: null,
+    });
+
+    const approved = repo.updateKycCase(row.id, {
+      status: 'APPROVED',
+      decisionReason: 'Looks good',
+      decidedBy: 'user_manager_1',
+      expectedVersion: 1,
+    });
+    expect(approved.success).toBe(true);
+    if (!approved.success) throw new Error('unexpected');
+    expect(approved.row.decidedAt).not.toBeNull();
+
+    const reopened = repo.updateKycCase(row.id, {
+      status: 'IN_REVIEW',
+      expectedVersion: 2,
+    });
+    expect(reopened.success).toBe(true);
+    if (!reopened.success) throw new Error('unexpected');
+    expect(reopened.row.status).toBe('IN_REVIEW');
+    expect(reopened.row.decidedAt).toBeNull();
+    expect(reopened.row.decidedBy).toBeNull();
+    expect(reopened.row.decisionReason).toBeNull();
+  });
+
   it('creates refund cases with unique idempotency keys', () => {
     repo.createRefundCase({
       id: 'rfwf_test_1',

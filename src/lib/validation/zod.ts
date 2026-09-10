@@ -14,7 +14,7 @@ export const amountMinor = z.coerce.number().int().positive();
 export const currency = z.string().min(3).max(3).toUpperCase();
 
 /** Human-readable reason for an action. Required for destructive or financial mutations. */
-export const reason = z.string().min(1).max(2000);
+export const reason = z.string().trim().min(1).max(2000);
 
 /** An idempotency key for payment-related or other replay-sensitive writes. */
 export const idempotencyKey = z.string().min(1).max(255);

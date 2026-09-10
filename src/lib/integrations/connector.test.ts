@@ -14,6 +14,18 @@ describe('CustomerConnector', () => {
   it('returns null for unknown refs', () => {
     expect(customerConnector.getCustomer('cus_nope')).toBeNull();
   });
+
+  it('returns defensive copies that cannot corrupt authoritative state', () => {
+    const customer = customerConnector.getCustomer('cus_1001');
+    expect(customer).not.toBeNull();
+    if (!customer) throw new Error('unexpected');
+    customer.accountStatus = 'closed';
+    expect(customerConnector.getCustomer('cus_1001')?.accountStatus).toBe('active');
+
+    const customers = customerConnector.listCustomers();
+    customers[0].accountStatus = 'closed';
+    expect(customerConnector.listCustomers()[0].accountStatus).toBe('active');
+  });
 });
 
 describe('KycProviderConnector', () => {
@@ -29,6 +41,20 @@ describe('KycProviderConnector', () => {
 
     const pep = kycProviderConnector.getCase('kyc_case_5003');
     expect(pep?.hasPepFlag).toBe(true);
+  });
+
+  it('returns defensive copies so callers cannot mutate connector state', () => {
+    const open = kycProviderConnector.listOpenCases();
+    expect(open.length).toBeGreaterThan(0);
+    open[0].status = 'verified';
+
+    expect(kycProviderConnector.listOpenCases().every((c) => c.status === 'pending')).toBe(true);
+
+    const caseCopy = kycProviderConnector.getCase('kyc_case_5002');
+    expect(caseCopy).not.toBeNull();
+    if (!caseCopy) throw new Error('unexpected');
+    caseCopy.riskLevel = 'high';
+    expect(kycProviderConnector.getCase('kyc_case_5002')?.riskLevel).toBe('low');
   });
 });
 

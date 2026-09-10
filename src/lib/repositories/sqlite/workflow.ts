@@ -56,18 +56,29 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
         return { success: false, error: { kind: 'NOT_FOUND' } };
       }
 
+      const terminalStatuses = ['APPROVED', 'REJECTED'];
+      const isTerminal = update.status ? terminalStatuses.includes(update.status) : undefined;
+
+      // When a status is supplied and is non-terminal, clear any decision metadata
+      // from a previous terminal transition so a reopened case does not retain a stale
+      // decision timestamp or approver.
       const decidedAt =
-        update.status && ['APPROVED', 'REJECTED'].includes(update.status)
+        isTerminal === true
           ? new Date()
-          : existing.decidedAt;
+          : isTerminal === false
+            ? null
+            : existing.decidedAt;
+      const decidedBy = isTerminal === false ? null : update.decidedBy ?? existing.decidedBy;
+      const decisionReason =
+        isTerminal === false ? null : update.decisionReason ?? existing.decisionReason;
 
       const updateResult = db
         .update(kycCaseWorkflow)
         .set({
           status: update.status,
           assigneeId: update.assigneeId,
-          decisionReason: update.decisionReason,
-          decidedBy: update.decidedBy,
+          decisionReason,
+          decidedBy,
           decidedAt,
           updatedAt: new Date(),
           version: update.expectedVersion + 1,

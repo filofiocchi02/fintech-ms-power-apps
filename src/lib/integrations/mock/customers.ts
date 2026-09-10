@@ -13,9 +13,10 @@ const CUSTOMERS: Customer[] = [
 
 export const customerConnector: CustomerConnector = {
   getCustomer(ref: string): Customer | null {
-    return CUSTOMERS.find((c) => c.ref === ref) ?? null;
+    const customer = CUSTOMERS.find((c) => c.ref === ref);
+    return customer ? structuredClone(customer) : null;
   },
   listCustomers(): Customer[] {
-    return CUSTOMERS;
+    return CUSTOMERS.map((c) => structuredClone(c));
   },
 };

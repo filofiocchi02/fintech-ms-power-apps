@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 
+
 interface InputField {
   label: string;
   value: string;
@@ -37,6 +38,7 @@ export function ConfirmationDialog({
   onCancel,
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const confirmedRef = useRef(false);
 
   const reasonOk = !reasonInput || reasonInput.value.trim().length > 0;
   const confirmationOk =
@@ -51,10 +53,28 @@ export function ConfirmationDialog({
     }
   }, [open]);
 
+  // The native `close` event fires for Escape, external controlled closure, and the
+  // programmatic close that follows a confirm. We only want real cancellations to call
+  // `onCancel`; a successful confirm must be treated as a completed action.
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return undefined;
+
+    function handleClose() {
+      if (confirmedRef.current) {
+        confirmedRef.current = false;
+        return;
+      }
+      onCancel();
+    }
+
+    dialog.addEventListener('close', handleClose);
+    return () => dialog.removeEventListener('close', handleClose);
+  }, [onCancel]);
+
   return (
     <dialog
       ref={ref}
-      onClose={onCancel}
       className="rounded-lg border border-border-subtle bg-surface p-0 shadow-lg backdrop:bg-slate-900/40"
     >
       <form
@@ -63,6 +83,7 @@ export function ConfirmationDialog({
         onSubmit={(e) => {
           e.preventDefault();
           if (!canConfirm) return;
+          confirmedRef.current = true;
           onConfirm();
         }}
       >

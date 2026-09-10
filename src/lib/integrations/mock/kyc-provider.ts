@@ -69,9 +69,10 @@ const CASES: KycEvidence[] = [
 
 export const kycProviderConnector: KycProviderConnector = {
   getCase(providerCaseRef: string): KycEvidence | null {
-    return CASES.find((c) => c.providerCaseRef === providerCaseRef) ?? null;
+    const c = CASES.find((c) => c.providerCaseRef === providerCaseRef);
+    return c ? structuredClone(c) : null;
   },
   listOpenCases(): KycEvidence[] {
-    return CASES.filter((c) => c.status === 'pending');
+    return CASES.filter((c) => c.status === 'pending').map((c) => structuredClone(c));
   },
 };
