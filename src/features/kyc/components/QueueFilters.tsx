@@ -101,7 +101,8 @@ export function QueueFilters({ countries, assignees, meId }: Props) {
         <Select
           label="Assignee"
           name="assignee"
-          value={params.get('assignee') ?? ''}
+          // A shared link may name the acting user explicitly; that is 'me' for them.
+          value={params.get('assignee') === meId ? 'me' : (params.get('assignee') ?? '')}
           options={[
             { value: 'me', label: 'Assigned to me' },
             { value: 'unassigned', label: 'Unassigned' },
