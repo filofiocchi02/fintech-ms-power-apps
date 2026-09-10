@@ -218,6 +218,43 @@ describe('KYC review', () => {
       expect(caseRow(CASES.ordinary)).toEqual(before);
     });
 
+    it('is idempotent for the holder of an AWAITING_INFO case and keeps it waiting', async () => {
+      await claim(compliance, CASES.ordinary);
+      await requestMoreInfo(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Proof of address, please.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+      const awaiting = caseRow(CASES.ordinary);
+      expect(awaiting.status).toBe('AWAITING_INFO');
+
+      const result = await claim(compliance, CASES.ordinary);
+
+      // Re-claiming must not silently drop the pending information request.
+      expect(result.status).toBe('AWAITING_INFO');
+      expect(result.assigneeId).toBe(compliance.id);
+      expect(result.version).toBe(awaiting.version);
+    });
+
+    it('keeps AWAITING_INFO when the override tier takes a waiting case over', async () => {
+      await claim(compliance, CASES.ordinary);
+      await requestMoreInfo(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Source of funds needed.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+      const awaiting = caseRow(CASES.ordinary);
+
+      const result = await claimCase(deps, manager, {
+        caseId: CASES.ordinary,
+        expectedVersion: awaiting.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected take-over, got ${result.message}`);
+      expect(result.assigneeId).toBe(manager.id);
+      expect(result.status).toBe('AWAITING_INFO');
+    });
+
     it('refuses a claim from a role without KYC access', async () => {
       const before = caseRow(CASES.ordinary);
       const result = await claimCase(deps, support, {

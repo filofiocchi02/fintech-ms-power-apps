@@ -243,8 +243,10 @@ export async function claimCase(
   }
 
   if (row.assigneeId === actor.id) {
-    // Already held by this actor. Still moves an anomalous OPEN-but-assigned row into review.
-    if (row.status === 'IN_REVIEW') return row;
+    // Already held. Idempotent for every status except an anomalous OPEN-but-assigned row,
+    // which still needs entering review — an AWAITING_INFO case keeps waiting on the
+    // customer, the request is not resolved by re-claiming.
+    if (row.status !== 'OPEN') return row;
   } else if (row.assigneeId !== null && !canOverrideSanctions(actor.role)) {
     return denyClaim(
       conflictError('Case is already assigned to another reviewer'),
@@ -253,7 +255,7 @@ export async function claimCase(
   }
 
   const result = deps.workflow.updateKycCase(row.id, {
-    status: 'IN_REVIEW',
+    status: row.status === 'OPEN' ? 'IN_REVIEW' : row.status,
     assigneeId: actor.id,
     expectedVersion: input.expectedVersion,
   });
