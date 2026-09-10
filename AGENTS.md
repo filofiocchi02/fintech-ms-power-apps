@@ -111,6 +111,8 @@ Compact, desktop-first fintech operations console:
 | `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Apply migrations, then the deterministic idempotent seed |
+| `npm run db:reset` | Drop the demo database and rebuild it from migrations + seed |
+| `npm run dev:clean` | `db:reset`, then the development server |
 | `npm run build` | Production build |
 | `npm run check` | lint + typecheck + unit tests + build. The PR gate. |
 
