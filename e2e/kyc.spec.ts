@@ -117,6 +117,12 @@ test.describe('KYC review queue', () => {
     await expect(page).toHaveURL(/risk=high&search=Delta/);
     await expect(page.getByRole('link', { name: 'Delta LLC' })).toBeVisible();
 
+    // Emptying the box and then touching another filter must drop the old search term.
+    await searchBox.fill('');
+    await page.getByLabel('Risk').selectOption('low');
+    await expect(page).not.toHaveURL(/search=/);
+    await expect(page.getByRole('link', { name: 'Beta Ltd' })).toBeVisible();
+
     await page.getByRole('link', { name: 'Clear' }).click();
     await expect(searchBox).toHaveValue('');
     await expect(page.getByRole('link', { name: 'Delta LLC' })).toBeVisible();

@@ -45,6 +45,13 @@ export function QueueFilters({ countries, assignees }: Props) {
     const next = new URLSearchParams(params.toString());
     if (value) next.set(key, value);
     else next.delete(key);
+
+    // What the reviewer can see in the box is what gets applied: changing a dropdown must not
+    // silently re-send search text that has already been edited or deleted.
+    const typed = search.trim();
+    if (typed) next.set('search', typed);
+    else next.delete('search');
+
     apply(next);
   }
 
