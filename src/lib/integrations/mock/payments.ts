@@ -4,6 +4,23 @@ import type { PaymentTransaction, PaymentsConnector, RefundResult } from '../typ
 
 const EPOCH = Date.parse('2026-01-05T09:00:00.000Z');
 
+/**
+ * A refund the payments system has actually executed.
+ *
+ * This is the financial history of the payment and belongs to the payments system, not to
+ * the internal tool. It is never copied into SQLite; the refunds app reads it at display
+ * time and shows it separately from its own audit trail.
+ */
+export interface PaymentRefund {
+  refundRef: string;
+  paymentRef: string;
+  amountMinor: number;
+  currency: string;
+  executedAt: Date;
+  /** Present when the refund was issued through an internal tool. */
+  channel: 'internal-tool' | 'psp-console';
+}
+
 function initialTransactions(): PaymentTransaction[] {
   return [
     {
@@ -63,8 +80,35 @@ function initialTransactions(): PaymentTransaction[] {
   ];
 }
 
+/**
+ * Refunds the payments system already knows about, independent of this tool. They explain
+ * the refundable balances above: pay_9004 was partially refunded and pay_9006 fully refunded
+ * in the PSP console.
+ */
+function initialRefunds(): PaymentRefund[] {
+  return [
+    {
+      refundRef: 'rfnd_8001',
+      paymentRef: 'pay_9004',
+      amountMinor: 25000,
+      currency: 'USD',
+      executedAt: new Date(EPOCH - 9 * 24 * 60 * 60 * 1000),
+      channel: 'psp-console',
+    },
+    {
+      refundRef: 'rfnd_8002',
+      paymentRef: 'pay_9006',
+      amountMinor: 4200,
+      currency: 'EUR',
+      executedAt: new Date(EPOCH - 7 * 24 * 60 * 60 * 1000),
+      channel: 'psp-console',
+    },
+  ];
+}
+
 // Mutable in-memory ledger for this prototype. Production replaces this with a real PSP connector.
 let transactions: PaymentTransaction[] = initialTransactions();
+let refunds: PaymentRefund[] = initialRefunds();
 
 interface CachedRefund {
   paymentRef: string;
@@ -78,7 +122,22 @@ function findTransaction(paymentRef: string): PaymentTransaction | undefined {
   return transactions.find((t) => t.paymentRef === paymentRef);
 }
 
-export const paymentsConnector: PaymentsConnector = {
+/**
+ * Financial history for a payment, newest first. Reading it never mutates the ledger.
+ *
+ * `PaymentsConnector` does not declare this yet; the refunds app consumes it through the
+ * adapter in `src/features/refunds/payments.ts` so the frozen interface stays untouched.
+ */
+function listRefunds(paymentRef: string): PaymentRefund[] {
+  return refunds
+    .filter((r) => r.paymentRef === paymentRef)
+    .sort((a, b) => b.executedAt.getTime() - a.executedAt.getTime())
+    .map((r) => structuredClone(r));
+}
+
+export const paymentsConnector: PaymentsConnector & {
+  listRefunds(paymentRef: string): PaymentRefund[];
+} = {
   getTransaction(paymentRef: string): PaymentTransaction | null {
     const tx = findTransaction(paymentRef);
     return tx ? structuredClone(tx) : null;
@@ -88,6 +147,7 @@ export const paymentsConnector: PaymentsConnector = {
       .filter((t) => t.refundableMinor > 0)
       .map((t) => structuredClone(t));
   },
+  listRefunds,
   executeRefund(paymentRef: string, amountMinor: number, idempotencyKey: string): RefundResult | { error: string } {
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
       return { error: 'Refund amount must be a positive integer' };
@@ -117,6 +177,14 @@ export const paymentsConnector: PaymentsConnector = {
       currency: tx.currency,
     };
     executedRefunds.set(idempotencyKey, { paymentRef, amountMinor, result });
+    refunds.push({
+      refundRef: result.executionRef,
+      paymentRef,
+      amountMinor,
+      currency: tx.currency,
+      executedAt: new Date(),
+      channel: 'internal-tool',
+    });
     return structuredClone(result);
   },
 };
@@ -124,5 +192,6 @@ export const paymentsConnector: PaymentsConnector = {
 /** Resets mutable mock state between tests. Not part of the public connector contract. */
 export function resetMockPayments(): void {
   transactions = initialTransactions();
+  refunds = initialRefunds();
   executedRefunds.clear();
 }
