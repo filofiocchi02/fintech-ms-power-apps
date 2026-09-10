@@ -1,4 +1,4 @@
-import { createDb, resolveDbPath, type AppDatabase } from './client';
+import { closeDb, createDb, resolveDbPath, type AppDatabase } from './client';
 import { runMigrations } from './migrate';
 import { kycCaseWorkflow, type KycWorkflowStatus } from './schema';
 
@@ -114,6 +114,14 @@ const isDirectRun = process.argv[1]?.includes('seed');
 if (isDirectRun) {
   const target = resolveDbPath();
   runMigrations(target);
-  seedDatabase(createDb(target));
+
+  const db = createDb(target);
+  try {
+    seedDatabase(db);
+  } finally {
+    // Also checkpoints the WAL, so the demo database is a single tidy file afterwards.
+    closeDb(db);
+  }
+
   console.log(`Seeded ${SEED_KYC_CASES.length} KYC workflow rows into ${target}`);
 }

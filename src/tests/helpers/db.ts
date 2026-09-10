@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createDb, type AppDatabase } from '@/db/client';
+import { closeDb, createDb, type AppDatabase } from '@/db/client';
 import { runMigrations } from '@/db/migrate';
 
 /**
@@ -11,6 +11,10 @@ import { runMigrations } from '@/db/migrate';
  * Every suite that touches workflow state or audit uses this. Sharing one database between
  * tests makes ordering matter and lets a negative-path test pass because an earlier test
  * left the row in the state it expected.
+ *
+ * `cleanup()` closes the connection before removing the directory, and must be called from
+ * `afterEach`. Without the close, a suite creating hundreds of isolated databases holds a
+ * descriptor open for every one of them until the process exits.
  */
 export function createTestDb(): { db: AppDatabase; dbPath: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'internal-tools-test-'));
@@ -22,6 +26,9 @@ export function createTestDb(): { db: AppDatabase; dbPath: string; cleanup: () =
   return {
     db,
     dbPath,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup: () => {
+      closeDb(db);
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }

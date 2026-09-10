@@ -40,6 +40,18 @@ export function createDb(dbPath: string = resolveDbPath()) {
   return drizzle(sqlite, { schema });
 }
 
+/**
+ * Closes the underlying SQLite handle.
+ *
+ * Drizzle does not own the connection lifecycle, so a caller that opened a short-lived
+ * database (migrations, a seed run, a test) must close it. Leaving it open leaks a file
+ * descriptor per connection and, because WAL is enabled, leaves `-wal`/`-shm` sidecar files
+ * uncheckpointed on disk.
+ */
+export function closeDb(db: AppDatabase): void {
+  db.$client.close();
+}
+
 let cached: AppDatabase | undefined;
 
 /**

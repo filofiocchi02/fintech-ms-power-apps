@@ -69,6 +69,16 @@ describe('database foundation', () => {
     }
   });
 
+  it('closes the SQLite connection on cleanup instead of leaking a handle per test', () => {
+    const scratch = createTestDb();
+    expect(scratch.db.$client.open).toBe(true);
+
+    scratch.cleanup();
+
+    // Without this, a suite of N isolated databases holds N descriptors until process exit.
+    expect(scratch.db.$client.open).toBe(false);
+  });
+
   it('rejects a duplicate refund idempotency key at the storage layer', () => {
     const base = {
       paymentRef: 'pay_9001',
