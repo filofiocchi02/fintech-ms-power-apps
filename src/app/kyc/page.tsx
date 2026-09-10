@@ -1,16 +1,29 @@
 import { redirect } from 'next/navigation';
 
-import { AppShell } from '@/components/internal-tools/AppShell';
-import { PageHeader } from '@/components/internal-tools/PageHeader';
 import { AccessDenied } from '@/components/internal-tools/AccessDenied';
+import { AppShell } from '@/components/internal-tools/AppShell';
+import { EmptyState } from '@/components/internal-tools/EmptyState';
+import { ErrorState } from '@/components/internal-tools/ErrorState';
+import { PageHeader } from '@/components/internal-tools/PageHeader';
+import { QueueFilters } from '@/features/kyc/components/QueueFilters';
+import { QueueTable } from '@/features/kyc/components/QueueTable';
+import { kycDeps } from '@/features/kyc/deps';
+import { kycQueueFiltersSchema, queryToFilterInput } from '@/features/kyc/schemas';
+import { listQueue } from '@/features/kyc/service';
 import { requireAppAccessOrDenied } from '@/lib/auth/guards';
+import { isAppError } from '@/lib/errors/errors';
+import { parseOrAppError } from '@/lib/validation/zod';
 
-export default async function KycPage() {
+interface Props {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function KycPage({ searchParams }: Props) {
   const guard = await requireAppAccessOrDenied('kyc');
   if (guard.denied) {
-    // If the user has selected a role that cannot access this app, send them back to the
-    // console home where the role switcher and allowed apps are visible. Only unauthenticated
-    // users (no role selected) see the static Access denied state.
+    // A role that simply cannot open this app goes back to the console home, where its own
+    // apps and the role switcher are visible. Only an unauthenticated visitor sees the
+    // static denied state.
     if (guard.reason.actor) {
       redirect('/');
     }
@@ -21,13 +34,50 @@ export default async function KycPage() {
     );
   }
 
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(await searchParams)) {
+    if (typeof value === 'string') params.set(key, value);
+  }
+
+  const filters = parseOrAppError(
+    kycQueueFiltersSchema,
+    queryToFilterInput(params),
+    () => 'Invalid queue filters',
+  );
+
+  const deps = kycDeps();
+  const allCases = listQueue(deps, guard.actor);
+  const filtered = isAppError(filters) ? filters : listQueue(deps, guard.actor, filters);
+
   return (
     <AppShell activeApp="kyc">
       <PageHeader
-        title="KYC Review Queue"
-        description="Review and decide customer verification cases. Customer identity and provider evidence are read from the authoritative connectors at runtime."
+        title="KYC review queue"
+        description="Customer identity and provider evidence are read from the authoritative connectors at request time; only review workflow state belongs to this tool."
       />
-      <p className="text-muted">Placeholder for KYC review queue (#2).</p>
+
+      {!isAppError(allCases) && (
+        <QueueFilters
+          countries={[...new Set(allCases.map((item) => item.country))].sort()}
+          assignees={[...new Set(allCases.map((item) => item.assigneeId).filter((id): id is string => id !== null))].sort()}
+        />
+      )}
+
+      {isAppError(filtered) ? (
+        <ErrorState error={filtered} title="Could not load the queue" />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          title="No cases match these filters"
+          description="Clear or widen the filters to see more of the queue."
+        />
+      ) : (
+        <>
+          <p className="mb-2 text-sm text-muted" aria-live="polite">
+            {filtered.length} of {isAppError(allCases) ? filtered.length : allCases.length} cases
+          </p>
+          <QueueTable items={filtered} />
+        </>
+      )}
     </AppShell>
   );
 }
