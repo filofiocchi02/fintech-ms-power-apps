@@ -31,7 +31,7 @@ export const ROLE_LABELS: Record<Role, string> = {
  * Apps in the console. Each feature session owns one primary app; `audit` and `platform`
  * are cross-cutting.
  */
-export const APPS = ['kyc', 'refunds', 'flags', 'audit', 'platform'] as const;
+export const APPS = ['kyc', 'refunds', 'flags', 'platform'] as const;
 export type App = (typeof APPS)[number];
 
 /** Action permissions, scoped by app. Page access does not imply action permission. */
@@ -39,7 +39,6 @@ export const APP_ACTIONS = {
   kyc: ['kyc:read', 'kyc:assign', 'kyc:decide'],
   refunds: ['refunds:read', 'refunds:request', 'refunds:approve', 'refunds:execute'],
   flags: ['flags:read', 'flags:write'],
-  audit: ['audit:read'],
   platform: ['platform:admin'],
 } as const;
 
@@ -59,7 +58,7 @@ export const ROLE_APP_ACCESS: Record<Role, readonly App[]> = {
   support: ['refunds'],
   compliance: ['kyc'],
   'release-engineer': ['flags'],
-  'manager-admin': ['kyc', 'refunds', 'flags', 'audit', 'platform'],
+  'manager-admin': ['kyc', 'refunds', 'flags', 'platform'],
 };
 
 /**
@@ -80,11 +79,6 @@ export function canAccessApp(role: Role, app: App): boolean {
 /** Whether the role holds the given action permission. */
 export function canPerformAction(role: Role, action: AppAction): boolean {
   return ROLE_ACTIONS[role].includes(action);
-}
-
-/** Whether the role may read the internal-tool audit timeline. */
-export function canReadAudit(role: Role): boolean {
-  return canAccessApp(role, 'audit');
 }
 
 /** Ordered list of apps the shell should show for this role. */

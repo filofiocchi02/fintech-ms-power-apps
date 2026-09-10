@@ -5,24 +5,24 @@ const ROLES = [
     role: 'support',
     label: 'Support Agent',
     allowed: ['Refunds'],
-    forbidden: ['KYC', 'Feature Flags', 'Audit'],
+    forbidden: ['KYC', 'Feature Flags', 'Platform'],
   },
   {
     role: 'compliance',
     label: 'Compliance Analyst',
     allowed: ['KYC'],
-    forbidden: ['Refunds', 'Feature Flags', 'Audit'],
+    forbidden: ['Refunds', 'Feature Flags', 'Platform'],
   },
   {
     role: 'release-engineer',
     label: 'Release Engineer',
     allowed: ['Feature Flags'],
-    forbidden: ['KYC', 'Refunds', 'Audit'],
+    forbidden: ['KYC', 'Refunds', 'Platform'],
   },
   {
     role: 'manager-admin',
     label: 'Manager / Admin',
-    allowed: ['KYC', 'Refunds', 'Feature Flags', 'Audit'],
+    allowed: ['KYC', 'Refunds', 'Feature Flags', 'Platform'],
     forbidden: [],
   },
 ] as const;
@@ -68,7 +68,7 @@ test.describe('role-based shell', () => {
     const errors = collectConsoleErrors(page);
     await actAsRole(page, 'manager-admin');
 
-    for (const path of ['/kyc', '/refunds', '/flags', '/audit']) {
+    for (const path of ['/kyc', '/refunds', '/flags']) {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     }

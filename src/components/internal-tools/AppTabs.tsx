@@ -11,7 +11,6 @@ const APP_LABELS: Record<App, string> = {
   kyc: 'KYC',
   refunds: 'Refunds',
   flags: 'Feature Flags',
-  audit: 'Audit',
   platform: 'Platform',
 };
 
