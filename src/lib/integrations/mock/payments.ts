@@ -106,20 +106,43 @@ function initialRefunds(): PaymentRefund[] {
   ];
 }
 
-// Mutable in-memory ledger for this prototype. Production replaces this with a real PSP connector.
-let transactions: PaymentTransaction[] = initialTransactions();
-let refunds: PaymentRefund[] = initialRefunds();
-
 interface CachedRefund {
   paymentRef: string;
   amountMinor: number;
   result: RefundResult;
 }
 
-const executedRefunds = new Map<string, CachedRefund>();
+interface Ledger {
+  transactions: PaymentTransaction[];
+  refunds: PaymentRefund[];
+  executedRefunds: Map<string, CachedRefund>;
+}
+
+function freshLedger(): Ledger {
+  return {
+    transactions: initialTransactions(),
+    refunds: initialRefunds(),
+    executedRefunds: new Map(),
+  };
+}
+
+/**
+ * Mutable in-memory ledger for this prototype. Production replaces this with a real PSP
+ * connector, so the whole thing goes away.
+ *
+ * It hangs off `globalThis` because Next bundles server modules per graph: a page and a Route
+ * Handler that both import this file would otherwise each get their own copy, and a refund
+ * executed through the API would be invisible to the page that renders the balance.
+ */
+const globalLedger = globalThis as typeof globalThis & { __mockPaymentsLedger?: Ledger };
+
+function ledger(): Ledger {
+  globalLedger.__mockPaymentsLedger ??= freshLedger();
+  return globalLedger.__mockPaymentsLedger;
+}
 
 function findTransaction(paymentRef: string): PaymentTransaction | undefined {
-  return transactions.find((t) => t.paymentRef === paymentRef);
+  return ledger().transactions.find((t) => t.paymentRef === paymentRef);
 }
 
 /**
@@ -129,8 +152,8 @@ function findTransaction(paymentRef: string): PaymentTransaction | undefined {
  * adapter in `src/features/refunds/payments.ts` so the frozen interface stays untouched.
  */
 function listRefunds(paymentRef: string): PaymentRefund[] {
-  return refunds
-    .filter((r) => r.paymentRef === paymentRef)
+  return ledger()
+    .refunds.filter((r) => r.paymentRef === paymentRef)
     .sort((a, b) => b.executedAt.getTime() - a.executedAt.getTime())
     .map((r) => structuredClone(r));
 }
@@ -143,8 +166,8 @@ export const paymentsConnector: PaymentsConnector & {
     return tx ? structuredClone(tx) : null;
   },
   listRefundableTransactions(): PaymentTransaction[] {
-    return transactions
-      .filter((t) => t.refundableMinor > 0)
+    return ledger()
+      .transactions.filter((t) => t.refundableMinor > 0)
       .map((t) => structuredClone(t));
   },
   listRefunds,
@@ -153,7 +176,7 @@ export const paymentsConnector: PaymentsConnector & {
       return { error: 'Refund amount must be a positive integer' };
     }
 
-    const cached = executedRefunds.get(idempotencyKey);
+    const cached = ledger().executedRefunds.get(idempotencyKey);
     if (cached) {
       if (cached.paymentRef !== paymentRef || cached.amountMinor !== amountMinor) {
         return { error: 'Idempotency key conflict' };
@@ -176,8 +199,8 @@ export const paymentsConnector: PaymentsConnector & {
       refundedMinor: amountMinor,
       currency: tx.currency,
     };
-    executedRefunds.set(idempotencyKey, { paymentRef, amountMinor, result });
-    refunds.push({
+    ledger().executedRefunds.set(idempotencyKey, { paymentRef, amountMinor, result });
+    ledger().refunds.push({
       refundRef: result.executionRef,
       paymentRef,
       amountMinor,
@@ -191,7 +214,5 @@ export const paymentsConnector: PaymentsConnector & {
 
 /** Resets mutable mock state between tests. Not part of the public connector contract. */
 export function resetMockPayments(): void {
-  transactions = initialTransactions();
-  refunds = initialRefunds();
-  executedRefunds.clear();
+  globalLedger.__mockPaymentsLedger = freshLedger();
 }

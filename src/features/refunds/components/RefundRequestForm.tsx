@@ -45,7 +45,10 @@ export function RefundRequestForm({ paymentRef, customerName, currency, refundab
   const canSubmit = amountValid && reasonValid && !submitting;
 
   async function submit() {
-    if (amountMinor === null) return;
+    if (amountMinor === null || submitting) return;
+    // The shared dialog has no pending state, so close it as the request starts: the only
+    // control left on screen is the form's own disabled "Submitting…" button.
+    setConfirming(false);
     setSubmitting(true);
     setError(null);
     setNotice(null);
@@ -197,7 +200,7 @@ export function RefundRequestForm({ paymentRef, customerName, currency, refundab
                 needsApproval ? ' A Manager/Admin must approve before any money moves.' : ' This moves money immediately.'
               }`
         }
-        confirmLabel={submitting ? 'Working…' : needsApproval ? 'Send for approval' : 'Refund now'}
+        confirmLabel={needsApproval ? 'Send for approval' : 'Refund now'}
         destructive={!needsApproval}
         onConfirm={submit}
         onCancel={() => setConfirming(false)}

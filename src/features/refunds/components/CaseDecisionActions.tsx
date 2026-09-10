@@ -32,6 +32,10 @@ export function CaseDecisionActions({ caseId, customerName, paymentRef, amountMi
   const [error, setError] = useState<string | null>(null);
 
   async function send(kind: Decision) {
+    if (submitting) return;
+    // The shared dialog has no pending state, so close it as the request starts and leave the
+    // disabled Approve/Reject buttons as the only controls.
+    setDecision(null);
     setSubmitting(true);
     setError(null);
     try {
@@ -85,7 +89,7 @@ export function CaseDecisionActions({ caseId, customerName, paymentRef, amountMi
             ? `Reject the ${formatMoney(amountMinor, currency)} refund for ${customerName} (${paymentRef}). No money moves.`
             : `Execute ${formatMoney(amountMinor, currency)} to ${customerName} against ${paymentRef}. This moves money immediately and cannot be undone here.`
         }
-        confirmLabel={submitting ? 'Working…' : decision === 'reject' ? 'Reject request' : 'Approve and refund'}
+        confirmLabel={decision === 'reject' ? 'Reject request' : 'Approve and refund'}
         destructive={decision === 'approve'}
         reasonInput={
           decision === 'reject'
