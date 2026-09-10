@@ -35,10 +35,11 @@ test.describe('foundation visual evidence', () => {
     });
   }
 
-  test('forbidden /kyc as support', async ({ page }) => {
+  test('forbidden /kyc redirects support to console home', async ({ page }) => {
     await actAsRole(page, 'support');
     await page.goto('/kyc');
-    await page.screenshot({ path: screenshotPath('access-denied-kyc-support') });
-    await expect(page.getByText('Access denied')).toBeVisible();
+    await expect(page).toHaveURL('/');
+    await page.screenshot({ path: screenshotPath('redirected-from-kyc-support') });
+    await expect(page.getByRole('heading', { level: 1, name: 'Operations Console' })).toBeVisible();
   });
 });

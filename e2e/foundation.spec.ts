@@ -82,15 +82,27 @@ test.describe('direct forbidden access', () => {
     await context.clearCookies();
   });
 
-  test('support agent is refused at /kyc with no data leaked', async ({ page }) => {
+  test('authenticated forbidden page redirects to console home with no data leaked', async ({ page }) => {
     const errors = collectConsoleErrors(page);
     await actAsRole(page, 'support');
     await page.goto('/kyc');
 
-    await expect(page.getByText('Access denied')).toBeVisible();
+    // A user who already has a role should land back on the console home, where the
+    // role switcher and allowed apps are visible, rather than a dead-end Access denied page.
+    await expect(page).toHaveURL('/');
     await expect(page.getByText('KYC Review Queue')).toBeHidden();
+    await expect(page.getByRole('heading', { level: 1, name: 'Operations Console' })).toBeVisible();
 
-    // The page should still render the shell without client errors.
+    expect(errors).toEqual([]);
+  });
+
+  test('unauthenticated user sees Access denied state at a protected app', async ({ page }) => {
+    const errors = collectConsoleErrors(page);
+    await page.goto('/kyc');
+
+    await expect(page.getByText('Access denied')).toBeVisible();
+    await expect(page.getByText('Select a role using the switcher in the header')).toBeVisible();
+
     expect(errors).toEqual([]);
   });
 
