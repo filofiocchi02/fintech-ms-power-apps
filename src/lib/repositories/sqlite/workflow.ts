@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import type { AppDatabase } from '@/db/client';
 import { kycCaseWorkflow, refundCaseWorkflow } from '@/db/schema';
@@ -55,18 +55,14 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
       if (!existing) {
         return { success: false, error: { kind: 'NOT_FOUND' } };
       }
-      if (existing.version !== update.expectedVersion) {
-        return {
-          success: false,
-          error: optimisticConcurrency(update.expectedVersion, existing.version),
-        };
-      }
 
-      const decidedAt = update.status && ['APPROVED', 'REJECTED'].includes(update.status)
-        ? new Date()
-        : existing.decidedAt;
+      const decidedAt =
+        update.status && ['APPROVED', 'REJECTED'].includes(update.status)
+          ? new Date()
+          : existing.decidedAt;
 
-      db.update(kycCaseWorkflow)
+      const updateResult = db
+        .update(kycCaseWorkflow)
         .set({
           status: update.status,
           assigneeId: update.assigneeId,
@@ -74,10 +70,23 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
           decidedBy: update.decidedBy,
           decidedAt,
           updatedAt: new Date(),
-          version: existing.version + 1,
+          version: update.expectedVersion + 1,
         })
-        .where(eq(kycCaseWorkflow.id, id))
+        .where(
+          and(
+            eq(kycCaseWorkflow.id, id),
+            eq(kycCaseWorkflow.version, update.expectedVersion),
+          ),
+        )
         .run();
+
+      if (updateResult.changes === 0) {
+        const row = this.getKycCaseById(id);
+        return {
+          success: false,
+          error: optimisticConcurrency(update.expectedVersion, row?.version ?? null),
+        };
+      }
 
       const row = this.getKycCaseById(id);
       if (!row) return { success: false, error: { kind: 'NOT_FOUND' } };
@@ -122,16 +131,13 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
       if (!existing) {
         return { success: false, error: { kind: 'NOT_FOUND' } };
       }
-      if (existing.version !== update.expectedVersion) {
-        return {
-          success: false,
-          error: optimisticConcurrency(update.expectedVersion, existing.version),
-        };
-      }
 
-      const approvedAt = update.approvedBy ? (update.approvedAt ?? new Date()) : existing.approvedAt;
+      const approvedAt = update.approvedBy
+        ? (update.approvedAt ?? new Date())
+        : existing.approvedAt;
 
-      db.update(refundCaseWorkflow)
+      const updateResult = db
+        .update(refundCaseWorkflow)
         .set({
           status: update.status,
           approvedBy: update.approvedBy,
@@ -139,10 +145,23 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
           decisionReason: update.decisionReason,
           executionRef: update.executionRef,
           updatedAt: new Date(),
-          version: existing.version + 1,
+          version: update.expectedVersion + 1,
         })
-        .where(eq(refundCaseWorkflow.id, id))
+        .where(
+          and(
+            eq(refundCaseWorkflow.id, id),
+            eq(refundCaseWorkflow.version, update.expectedVersion),
+          ),
+        )
         .run();
+
+      if (updateResult.changes === 0) {
+        const row = this.getRefundCaseById(id);
+        return {
+          success: false,
+          error: optimisticConcurrency(update.expectedVersion, row?.version ?? null),
+        };
+      }
 
       const row = this.getRefundCaseById(id);
       if (!row) return { success: false, error: { kind: 'NOT_FOUND' } };

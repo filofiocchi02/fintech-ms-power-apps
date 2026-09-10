@@ -40,7 +40,7 @@ export function ConfirmationDialog({
 
   const reasonOk = !reasonInput || reasonInput.value.trim().length > 0;
   const confirmationOk =
-    !confirmationInput || confirmationInput.value.trim() === confirmationInput.expectedValue.trim();
+    !confirmationInput || confirmationInput.value === confirmationInput.expectedValue;
   const canConfirm = reasonOk && confirmationOk;
 
   useEffect(() => {

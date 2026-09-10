@@ -11,7 +11,11 @@ export default async function RefundsPage() {
     if (guard.reason.actor) {
       redirect('/');
     }
-    return <AccessDenied actor={null} requiredApp="Refunds" />;
+    return (
+      <AppShell>
+        <AccessDenied actor={null} requiredApp="Refunds" />
+      </AppShell>
+    );
   }
 
   return (

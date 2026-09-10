@@ -11,7 +11,11 @@ export default async function AuditPage() {
     if (guard.reason.actor) {
       redirect('/');
     }
-    return <AccessDenied actor={null} requiredApp="Audit" />;
+    return (
+      <AppShell>
+        <AccessDenied actor={null} requiredApp="Audit" />
+      </AppShell>
+    );
   }
 
   return (

@@ -96,12 +96,14 @@ test.describe('direct forbidden access', () => {
     expect(errors).toEqual([]);
   });
 
-  test('unauthenticated user sees Access denied state at a protected app', async ({ page }) => {
+  test('unauthenticated user sees Access denied state with the role switcher available', async ({ page }) => {
     const errors = collectConsoleErrors(page);
     await page.goto('/kyc');
 
     await expect(page.getByText('Access denied')).toBeVisible();
     await expect(page.getByText('Select a role using the switcher in the header')).toBeVisible();
+    await expect(page.getByLabel('Act as role')).toBeVisible();
+    await expect(page.getByText('Internal Tools')).toBeVisible();
 
     expect(errors).toEqual([]);
   });

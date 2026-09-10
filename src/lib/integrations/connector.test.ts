@@ -54,6 +54,19 @@ describe('PaymentsConnector', () => {
     expect(result).toEqual({ error: 'Refund exceeds refundable balance' });
   });
 
+  it('rejects non-positive refund amounts before touching the ledger', () => {
+    const before = paymentsConnector.getTransaction('pay_9001')?.refundableMinor;
+
+    expect(paymentsConnector.executeRefund('pay_9001', 0, 'idem_zero')).toEqual({
+      error: 'Refund amount must be a positive integer',
+    });
+    expect(paymentsConnector.executeRefund('pay_9001', -1000, 'idem_negative')).toEqual({
+      error: 'Refund amount must be a positive integer',
+    });
+
+    expect(paymentsConnector.getTransaction('pay_9001')?.refundableMinor).toBe(before);
+  });
+
   it('executes idempotently', () => {
     const first = paymentsConnector.executeRefund('pay_9001', 1000, 'idem_repeat');
     const second = paymentsConnector.executeRefund('pay_9001', 1000, 'idem_repeat');

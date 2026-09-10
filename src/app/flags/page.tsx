@@ -11,7 +11,11 @@ export default async function FlagsPage() {
     if (guard.reason.actor) {
       redirect('/');
     }
-    return <AccessDenied actor={null} requiredApp="Feature Flags" />;
+    return (
+      <AppShell>
+        <AccessDenied actor={null} requiredApp="Feature Flags" />
+      </AppShell>
+    );
   }
 
   return (

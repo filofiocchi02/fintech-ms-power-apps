@@ -82,6 +82,10 @@ export const paymentsConnector: PaymentsConnector = {
       return existing;
     }
 
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      return { error: 'Refund amount must be a positive integer' };
+    }
+
     const tx = getTransaction(paymentRef);
     if (!tx) return { error: 'Transaction not found' };
     if (tx.status !== 'captured') return { error: 'Transaction is not refundable' };

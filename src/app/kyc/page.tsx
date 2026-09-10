@@ -14,7 +14,11 @@ export default async function KycPage() {
     if (guard.reason.actor) {
       redirect('/');
     }
-    return <AccessDenied actor={null} requiredApp="KYC" />;
+    return (
+      <AppShell>
+        <AccessDenied actor={null} requiredApp="KYC" />
+      </AppShell>
+    );
   }
 
   return (
