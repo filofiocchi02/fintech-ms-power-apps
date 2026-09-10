@@ -1,0 +1,58 @@
+import { z } from 'zod';
+
+import { validationError, type AppError } from '@/lib/errors/errors';
+
+/**
+ * Shared Zod helpers so every route validates input consistently and returns typed errors.
+ *
+ * Feature sessions import these rather than redefining common shapes, which keeps error
+ * messages and coercion behaviour identical across apps.
+ */
+
+/** Minor-unit money amount (pence). Rejects floats, zero, strings and booleans. */
+export const amountMinor = z.number().int().positive();
+
+/** ISO 4217 currency code, uppercased. */
+export const currency = z.string().min(3).max(3).toUpperCase();
+
+/** Human-readable reason for an action. Required for destructive or financial mutations. */
+export const reason = z.string().trim().min(1).max(2000);
+
+/** An idempotency key for payment-related or other replay-sensitive writes. */
+export const idempotencyKey = z.string().min(1).max(255);
+
+/** Typed confirmation value for dangerous actions (e.g. typing a flag key to delete). */
+export const typedConfirmation = z.string().min(1).max(255);
+
+/** Reference to an external record, case, payment or customer. */
+export const externalRef = z.string().min(1).max(255);
+
+/** Non-empty string. */
+export const nonEmptyString = z.string().min(1);
+
+/** A positive integer version for optimistic concurrency. */
+export const version = z.coerce.number().int().positive();
+
+export function parseOrAppError<T>(
+  schema: z.ZodSchema<T>,
+  value: unknown,
+  onError: (issues: z.ZodIssue[]) => string,
+): T | AppError {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const details: Record<string, string | string[]> = {};
+    for (const issue of result.error.issues) {
+      const path = issue.path.length ? issue.path.join('.') : 'general';
+      const existing = details[path];
+      if (Array.isArray(existing)) {
+        existing.push(issue.message);
+      } else if (existing) {
+        details[path] = [existing, issue.message];
+      } else {
+        details[path] = issue.message;
+      }
+    }
+    return validationError(onError(result.error.issues), details);
+  }
+  return result.data;
+}

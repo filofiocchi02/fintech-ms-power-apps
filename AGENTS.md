@@ -142,6 +142,27 @@ e2e/                       Playwright browser tests
 Feature sessions own only their listed paths. Changing shared code from a feature branch
 causes merge conflicts in integration; if shared code genuinely must change, say so in the PR.
 
+## Frozen shared contracts
+
+The following files and types are frozen by the foundation issue (#1). Feature sessions
+import and consume them; they do not reimplement or extend them from a feature branch without
+an explicit PR note and a shared review.
+
+- `src/lib/auth/roles.ts` — `Role`, `App`, `AppAction`, `ROLE_APP_ACCESS`, `ROLE_ACTIONS`
+- `src/lib/auth/session.ts` — `getCurrentUser()`, `roleCookieOptions()`
+- `src/lib/auth/guards.ts` — `requireAppAccess()`, `requireApiAppAccess()`, `requireActionPermission()`
+- `src/lib/errors/errors.ts` — `AppError`, error constructors, `isAppError()`
+- `src/lib/validation/api.ts` — `ApiResponse<T>`, `successResponse()`, `errorResponse()`
+- `src/lib/validation/zod.ts` — shared Zod schemas and `parseOrAppError()`
+- `src/lib/integrations/types.ts` — `CustomerConnector`, `KycProviderConnector`, `PaymentsConnector`, `FeatureFlagConnector`
+- `src/lib/repositories/types.ts` — `WorkflowRepository`, `AuditSink`, `KycCaseUpdate`, `RefundCaseUpdate`, `OptimisticConcurrencyError`
+- `src/db/schema.ts` — `auditEvents`, `kycCaseWorkflow`, `refundCaseWorkflow`, status/outcome/app unions
+- `src/db/client.ts` — `createDb()`, `closeDb()`, `getDb()`, `AppDatabase`
+- `src/components/internal-tools/**` — shared shell, tables, filters, detail layouts, badges, confirmations, states
+
+If a feature session needs to change one of these, pause and ask. Changing a frozen
+interface means every downstream branch has to rebase.
+
 ## Skills
 
 Repository skills live in `.agents/skills/`. Each takes an issue number as `$1`:

@@ -34,6 +34,7 @@ export default defineConfig({
     timeout: 180_000,
     env: {
       INTERNAL_TOOLS_DB_PATH: './data/e2e.db',
+      DEMO_ROLE_SECRET: 'e2e-test-role-secret-do-not-use-in-production',
     },
   },
 });
