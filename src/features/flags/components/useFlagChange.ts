@@ -60,12 +60,13 @@ export function useFlagChange(flagKey: string, environment: FlagEnvironment) {
       // dialog left open after a rejected change is easy to submit again by accident.
       close();
 
+      // Refreshed either way: a rejected change leaves the server state unchanged, and a
+      // change the flag system applied but could not audit has to be shown as it now is.
+      router.refresh();
+
       if (!payload.success) {
         setError(payload.error.message);
-        return;
       }
-
-      router.refresh();
     } catch {
       close();
       setError('The change could not be sent. Check your connection and try again.');

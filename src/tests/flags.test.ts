@@ -380,6 +380,21 @@ describe('targeting rules', () => {
     expect(auditRows().filter((row) => row.outcome === 'ACCEPTED')).toHaveLength(0);
   });
 
+  it('refuses malformed cohorts at the connector, not only at the route', () => {
+    const before = featureFlagConnector.getFlag(FLAG_KEY, 'dev')?.targeting;
+
+    const result = featureFlagConnector.setTargeting(
+      FLAG_KEY,
+      'dev',
+      [{ cohort: 'Not A Cohort', description: 'x'.repeat(200) }],
+      'demo_release_engineer',
+      'direct call',
+    );
+
+    expect(result).toHaveProperty('error');
+    expect(featureFlagConnector.getFlag(FLAG_KEY, 'dev')?.targeting).toEqual(before);
+  });
+
   it('refuses a production targeting change without confirmation', async () => {
     actAs('manager-admin');
     const before = featureFlagConnector.getFlag(FLAG_KEY, 'production')?.targeting;

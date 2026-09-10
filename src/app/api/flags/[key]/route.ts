@@ -2,10 +2,12 @@ import { NextResponse } from 'next/server';
 
 import { flagDeps } from '@/features/flags/deps';
 import { denialResponse, failureResponse } from '@/features/flags/http';
+import { flagKeySchema } from '@/features/flags/schemas';
 import { applyFlagChange, getFlagDetail } from '@/features/flags/service';
 import { getActor, requireActionPermission, requireApiAppAccess } from '@/lib/auth/guards';
 import { isAppError, validationError } from '@/lib/errors/errors';
 import { errorResponse, successResponse } from '@/lib/validation/api';
+import { parseOrAppError } from '@/lib/validation/zod';
 
 /**
  * Per-flag reads and changes.
@@ -19,6 +21,12 @@ interface Context {
   params: Promise<{ key: string }>;
 }
 
+/** The path segment is untrusted input like any other, so it passes the same Zod boundary. */
+async function parseKey(context: Context) {
+  const { key } = await context.params;
+  return parseOrAppError(flagKeySchema, key, () => 'Invalid flag key');
+}
+
 export async function GET(request: Request, context: Context) {
   const actor = await getActor();
   const access = requireApiAppAccess(actor, 'flags');
@@ -26,7 +34,11 @@ export async function GET(request: Request, context: Context) {
     return failureResponse(access);
   }
 
-  const { key } = await context.params;
+  const key = await parseKey(context);
+  if (isAppError(key)) {
+    return NextResponse.json(errorResponse(key), { status: key.status });
+  }
+
   const url = new URL(request.url);
   const result = getFlagDetail(flagDeps(), key, url.searchParams.get('environment') ?? undefined);
 
@@ -49,6 +61,11 @@ export async function PATCH(request: Request, context: Context) {
     return denialResponse(permission.response);
   }
 
+  const key = await parseKey(context);
+  if (isAppError(key)) {
+    return NextResponse.json(errorResponse(key), { status: key.status });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -57,7 +74,6 @@ export async function PATCH(request: Request, context: Context) {
     return NextResponse.json(errorResponse(error), { status: error.status });
   }
 
-  const { key } = await context.params;
   const result = await applyFlagChange(flagDeps(), permission.actor, key, body);
 
   if (isAppError(result)) {

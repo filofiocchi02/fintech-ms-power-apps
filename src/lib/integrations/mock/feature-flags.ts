@@ -174,6 +174,9 @@ interface MockFlagState {
 }
 
 const MAX_TARGETING_RULES = 10;
+const COHORT_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const MAX_COHORT_LENGTH = 60;
+const MAX_COHORT_DESCRIPTION_LENGTH = 160;
 
 /**
  * The stand-in flag system lives in memory, and the bundler gives a page and a Route Handler
@@ -217,6 +220,18 @@ function targetingError(targeting: readonly FlagTargetingRule[]): string | null 
   }
   if (targeting.some((rule) => !rule.cohort.trim())) {
     return 'Every targeting rule needs a cohort';
+  }
+  if (
+    targeting.some(
+      (rule) =>
+        rule.cohort.trim().length > MAX_COHORT_LENGTH ||
+        !COHORT_PATTERN.test(rule.cohort.trim()),
+    )
+  ) {
+    return `Cohort names use lowercase letters, numbers and hyphens, up to ${MAX_COHORT_LENGTH} characters`;
+  }
+  if (targeting.some((rule) => rule.description.trim().length > MAX_COHORT_DESCRIPTION_LENGTH)) {
+    return `A cohort description may be at most ${MAX_COHORT_DESCRIPTION_LENGTH} characters`;
   }
   const cohorts = targeting.map((rule) => rule.cohort.trim().toLowerCase());
   if (new Set(cohorts).size !== cohorts.length) {
