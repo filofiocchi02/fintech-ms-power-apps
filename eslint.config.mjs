@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated test artifacts (gitignored; ESLint flat config does not read .gitignore):
+    "playwright-report/**",
+    "test-results/**",
+    ".playwright-mcp/**",
   ]),
 ]);
 

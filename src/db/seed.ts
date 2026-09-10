@@ -35,7 +35,9 @@ type SeedKycCase = {
  * app-owned metadata with nothing authoritative to join to.
  *
  * The spread is intentional: unassigned and assigned, fresh and aged, so the queue's
- * status/assignee/age columns and filters have something real to show.
+ * status/assignee/age columns and filters have something real to show. Assignee ids are
+ * real demo actor ids (`demo_${role}`), so the Compliance Analyst sees a case it already
+ * holds and the Manager / Admin sees one escalated onto its tier.
  */
 export const SEED_KYC_CASES: readonly SeedKycCase[] = [
   {
@@ -59,7 +61,7 @@ export const SEED_KYC_CASES: readonly SeedKycCase[] = [
     providerCaseRef: 'kyc_case_5003',
     customerRef: 'cus_1003',
     status: 'IN_REVIEW',
-    assigneeId: 'user_compliance_1',
+    assigneeId: 'demo_compliance',
     openedOffsetHours: 26,
   },
   {
@@ -75,7 +77,7 @@ export const SEED_KYC_CASES: readonly SeedKycCase[] = [
     providerCaseRef: 'kyc_case_5005',
     customerRef: 'cus_1005',
     status: 'IN_REVIEW',
-    assigneeId: 'user_manager_1',
+    assigneeId: 'demo_manager-admin',
     openedOffsetHours: 73,
   },
   {

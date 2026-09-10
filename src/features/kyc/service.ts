@@ -9,7 +9,16 @@ import {
 import type { CustomerConnector } from '@/lib/integrations/types';
 import type { AuditSink, KycCase, WorkflowRepository } from '@/lib/repositories/types';
 
-import { canAccessKyc, canOverrideSanctions, canReviewKyc, KYC_REVIEW_ACTION } from './authorization';
+import {
+  canAccessKyc,
+  canAssignKyc,
+  canOverrideSanctions,
+  canReviewKyc,
+  escalationTargetAssigneeId,
+  KYC_ASSIGN_ACTION,
+  KYC_ESCALATE_ACTION,
+  KYC_REVIEW_ACTION,
+} from './authorization';
 import type {
   KycCaseDetail,
   KycCaseEvidence,
@@ -68,7 +77,7 @@ function toQueueItem(
   };
 }
 
-function matchesFilters(item: KycQueueItem, filters: KycQueueFilters): boolean {
+function matchesFilters(item: KycQueueItem, filters: KycQueueFilters, actorId: string): boolean {
   const search = filters.search?.trim().toLowerCase();
   if (search) {
     const haystack = `${item.customerName} ${item.customerRef}`.toLowerCase();
@@ -78,7 +87,10 @@ function matchesFilters(item: KycQueueItem, filters: KycQueueFilters): boolean {
   if (filters.risk && item.riskLevel !== filters.risk) return false;
   if (filters.country && item.country !== filters.country) return false;
   if (filters.assignee) {
-    const assignee = filters.assignee === 'unassigned' ? null : filters.assignee;
+    const assignee =
+      filters.assignee === 'unassigned' ? null
+      : filters.assignee === 'me' ? actorId
+      : filters.assignee;
     if (item.assigneeId !== assignee) return false;
   }
   return true;
@@ -104,7 +116,7 @@ export function listQueue(
       if (!evidence || !customer) return [];
       return [toQueueItem(row, evidence, customer.displayName, customer.region, now)];
     })
-    .filter((item) => matchesFilters(item, filters))
+    .filter((item) => matchesFilters(item, filters, actor.id))
     .sort((a, b) => a.openedAt.getTime() - b.openedAt.getTime());
 }
 
@@ -166,36 +178,209 @@ function snapshot(row: KycCase) {
 }
 
 /**
+ * Every refusal path returns before any repository write and records a `DENIED` audit event,
+ * so a denied attempt can never be mistaken for an accepted mutation.
+ */
+async function deny(
+  deps: KycDeps,
+  actor: Actor,
+  action: string,
+  caseId: string,
+  error: AppError,
+  row: KycCase | null,
+): Promise<AppError> {
+  await deps.audit.emit({
+    app: 'kyc',
+    action,
+    actorId: actor.id,
+    actorRole: actor.role,
+    subjectType: KYC_SUBJECT_TYPE,
+    subjectRef: caseId,
+    outcome: 'DENIED',
+    reason: error.message,
+    before: row ? snapshot(row) : undefined,
+  });
+  return error;
+}
+
+export interface ClaimInput {
+  caseId: string;
+  /** Version the reviewer's page was rendered from; guards concurrent claims. */
+  expectedVersion: number;
+}
+
+/**
+ * Claims a case for the actor: `assigneeId` becomes the actor and an `OPEN` case moves to
+ * `IN_REVIEW`. Only the assignee may decide or escalate a case, so claiming is how a
+ * reviewer takes ownership of it.
+ *
+ * An unassigned case is claimable by anyone with `kyc:assign`. A case already held by
+ * someone else can only be pulled by a role with the sanctions-override capability
+ * (Manager / Admin), which is the same tier escalations land on. Claiming a case you
+ * already hold is a no-op, so a retried request returns the same state.
+ */
+export async function claimCase(
+  deps: KycDeps,
+  actor: Actor,
+  input: ClaimInput,
+): Promise<KycCase | AppError> {
+  const denyClaim = (error: AppError, row: KycCase | null) =>
+    deny(deps, actor, KYC_ASSIGN_ACTION, input.caseId, error, row);
+
+  if (!canAccessKyc(actor.role)) {
+    return denyClaim(forbiddenError('Access to KYC is not permitted for this role'), null);
+  }
+  if (!canAssignKyc(actor.role)) {
+    return denyClaim(forbiddenError('Claiming a KYC case is not permitted for this role'), null);
+  }
+
+  const row = deps.workflow.getKycCaseById(input.caseId);
+  if (!row) return notFoundError('KYC case not found');
+
+  if (TERMINAL_STATUSES.includes(row.status)) {
+    return denyClaim(conflictError(`Case is already ${row.status.toLowerCase()}`), row);
+  }
+
+  if (row.assigneeId === actor.id) {
+    // Already held by this actor. Still moves an anomalous OPEN-but-assigned row into review.
+    if (row.status === 'IN_REVIEW') return row;
+  } else if (row.assigneeId !== null && !canOverrideSanctions(actor.role)) {
+    return denyClaim(
+      conflictError('Case is already assigned to another reviewer'),
+      row,
+    );
+  }
+
+  const result = deps.workflow.updateKycCase(row.id, {
+    status: 'IN_REVIEW',
+    assigneeId: actor.id,
+    expectedVersion: input.expectedVersion,
+  });
+
+  if (!result.success) {
+    if (result.error.kind === 'NOT_FOUND') return notFoundError('KYC case not found');
+    return denyClaim(
+      conflictError('This case changed while you were reviewing it. Reload and try again.'),
+      row,
+    );
+  }
+
+  await deps.audit.emit({
+    app: 'kyc',
+    action: KYC_ASSIGN_ACTION,
+    actorId: actor.id,
+    actorRole: actor.role,
+    subjectType: KYC_SUBJECT_TYPE,
+    subjectRef: row.id,
+    outcome: 'ACCEPTED',
+    reason: row.assigneeId === actor.id ? 'Claimed case' : `Claimed case from ${row.assigneeId ?? 'unassigned'}`,
+    before: snapshot(row),
+    after: snapshot(result.row),
+  });
+
+  return result.row;
+}
+
+export interface EscalateInput {
+  caseId: string;
+  /** Why the case is being handed up; recorded in the case audit timeline. */
+  reason: string;
+  expectedVersion: number;
+}
+
+/**
+ * Escalates a case to the Manager / Admin tier by reassigning it.
+ *
+ * Only the reviewer who holds the case can escalate it, and only while it is undecided.
+ * After escalation the assignee is the manager tier, so a manager sees the case as assigned
+ * to them and the original reviewer no longer holds it — and therefore can no longer decide
+ * it. Manager / Admin is the top tier and has no escalation target.
+ */
+export async function escalateCase(
+  deps: KycDeps,
+  actor: Actor,
+  input: EscalateInput,
+): Promise<KycCase | AppError> {
+  const denyEscalation = (error: AppError, row: KycCase | null) =>
+    deny(deps, actor, KYC_ESCALATE_ACTION, input.caseId, error, row);
+
+  if (!canAccessKyc(actor.role)) {
+    return denyEscalation(forbiddenError('Access to KYC is not permitted for this role'), null);
+  }
+  if (!canAssignKyc(actor.role)) {
+    return denyEscalation(forbiddenError('Escalating a KYC case is not permitted for this role'), null);
+  }
+
+  const row = deps.workflow.getKycCaseById(input.caseId);
+  if (!row) return notFoundError('KYC case not found');
+
+  if (TERMINAL_STATUSES.includes(row.status)) {
+    return denyEscalation(conflictError(`Case is already ${row.status.toLowerCase()}`), row);
+  }
+
+  if (row.assigneeId !== actor.id) {
+    return denyEscalation(
+      forbiddenError('Only the reviewer who holds this case can escalate it'),
+      row,
+    );
+  }
+
+  const target = escalationTargetAssigneeId(actor.role);
+  if (!target) {
+    return denyEscalation(
+      conflictError('This case is already at the Manager / Admin review tier'),
+      row,
+    );
+  }
+
+  const result = deps.workflow.updateKycCase(row.id, {
+    assigneeId: target,
+    expectedVersion: input.expectedVersion,
+  });
+
+  if (!result.success) {
+    if (result.error.kind === 'NOT_FOUND') return notFoundError('KYC case not found');
+    return denyEscalation(
+      conflictError('This case changed while you were reviewing it. Reload and try again.'),
+      row,
+    );
+  }
+
+  await deps.audit.emit({
+    app: 'kyc',
+    action: KYC_ESCALATE_ACTION,
+    actorId: actor.id,
+    actorRole: actor.role,
+    subjectType: KYC_SUBJECT_TYPE,
+    subjectRef: row.id,
+    outcome: 'ACCEPTED',
+    reason: input.reason,
+    before: snapshot(row),
+    after: snapshot(result.row),
+  });
+
+  return result.row;
+}
+
+/**
  * Applies a reviewer decision, or refuses it with a typed error.
  *
- * Every refusal path returns before any repository write and records a `DENIED` audit event,
- * so a denied attempt can never be mistaken for a decision.
+ * A decision requires the actor to hold the case: claim it first, or have it escalated to
+ * your tier.
  */
 export async function decideCase(
   deps: KycDeps,
   actor: Actor,
   input: DecisionInput,
 ): Promise<KycCase | AppError> {
-  const deny = async (error: AppError, row: KycCase | null): Promise<AppError> => {
-    await deps.audit.emit({
-      app: 'kyc',
-      action: KYC_REVIEW_ACTION,
-      actorId: actor.id,
-      actorRole: actor.role,
-      subjectType: KYC_SUBJECT_TYPE,
-      subjectRef: input.caseId,
-      outcome: 'DENIED',
-      reason: error.message,
-      before: row ? snapshot(row) : undefined,
-    });
-    return error;
-  };
+  const denyDecision = (error: AppError, row: KycCase | null) =>
+    deny(deps, actor, KYC_REVIEW_ACTION, input.caseId, error, row);
 
   if (!canAccessKyc(actor.role)) {
-    return deny(forbiddenError('Access to KYC is not permitted for this role'), null);
+    return denyDecision(forbiddenError('Access to KYC is not permitted for this role'), null);
   }
   if (!canReviewKyc(actor.role)) {
-    return deny(forbiddenError('Deciding a KYC case is not permitted for this role'), null);
+    return denyDecision(forbiddenError('Deciding a KYC case is not permitted for this role'), null);
   }
 
   const row = deps.workflow.getKycCaseById(input.caseId);
@@ -205,19 +390,26 @@ export async function decideCase(
   if (!evidence) return notFoundError('KYC case evidence not found');
 
   if (TERMINAL_STATUSES.includes(row.status)) {
-    return deny(conflictError(`Case is already ${row.status.toLowerCase()}`), row);
+    return denyDecision(conflictError(`Case is already ${row.status.toLowerCase()}`), row);
+  }
+
+  if (row.assigneeId !== actor.id) {
+    return denyDecision(
+      forbiddenError('You must hold this case to decide it. Claim it first.'),
+      row,
+    );
   }
 
   if (input.decision === 'APPROVE') {
     const outstanding = outstandingDocuments(evidence);
     if (outstanding.length > 0) {
-      return deny(
+      return denyDecision(
         preconditionError(`Approval blocked: required documents outstanding (${outstanding.join(', ')})`),
         row,
       );
     }
     if (requiresSanctionsOverride(evidence) && !canOverrideSanctions(actor.role)) {
-      return deny(
+      return denyDecision(
         forbiddenError('Approving a sanctions or PEP hit requires a Manager / Admin override'),
         row,
       );
@@ -234,7 +426,7 @@ export async function decideCase(
 
   if (!result.success) {
     if (result.error.kind === 'NOT_FOUND') return notFoundError('KYC case not found');
-    return deny(
+    return denyDecision(
       conflictError('This case changed while you were reviewing it. Reload and try again.'),
       row,
     );

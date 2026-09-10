@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { auditEvents } from '@/db/schema';
 import { seedDatabase } from '@/db/seed';
-import { KYC_SUBJECT_TYPE, decideCase, getCaseDetail, listQueue } from '@/features/kyc/service';
+import {
+  claimCase,
+  decideCase,
+  escalateCase,
+  getCaseDetail,
+  KYC_SUBJECT_TYPE,
+  listQueue,
+} from '@/features/kyc/service';
 import type { KycDeps } from '@/features/kyc/service';
 import { requireApiAppAccess } from '@/lib/auth/guards';
 import type { Actor } from '@/lib/auth/session';
@@ -19,16 +26,21 @@ import { createTestDb } from './helpers/db';
  * KYC review behaviour, exercised against the real repositories on an isolated database.
  *
  * The negative paths assert three things together — the typed error, that workflow state is
- * unchanged, and that no ACCEPTED audit row exists — because a denial that quietly mutates
- * or logs a success is exactly the failure this app must not have.
+ * unchanged, and that no ACCEPTED audit row exists for the denied action — because a denial
+ * that quietly mutates or logs a success is exactly the failure this app must not have.
  */
 
 const CASES = {
   ordinary: 'kycwf_0001',
   missingDocuments: 'kycwf_0002',
+  /** Seeded IN_REVIEW, already held by the demo Compliance Analyst. */
   pepHit: 'kycwf_0003',
   sanctionsHit: 'kycwf_0004',
+  /** Seeded IN_REVIEW, held by the Manager / Admin tier (as if escalated). */
+  managerHeld: 'kycwf_0005',
 } as const;
+
+const MANAGER_TIER_ID = 'demo_manager-admin';
 
 function actorFor(role: Role): Actor {
   return { id: `demo_${role}`, role, displayName: ROLE_LABELS[role] };
@@ -66,6 +78,16 @@ describe('KYC review', () => {
     return deps.audit.listForSubject(KYC_SUBJECT_TYPE, id);
   }
 
+  /** Claims a case and returns the fresh row, so callers get a current version. */
+  async function claim(actor: Actor, caseId: string) {
+    const result = await claimCase(deps, actor, {
+      caseId,
+      expectedVersion: caseRow(caseId).version,
+    });
+    if (isAppError(result)) throw new Error(`expected claim, got ${result.message}`);
+    return result;
+  }
+
   describe('queue', () => {
     it('composes workflow state with provider evidence and customer identity', () => {
       const queue = listQueue(deps, compliance);
@@ -95,20 +117,123 @@ describe('KYC review', () => {
       expect(byRef.map((item) => item.id)).toEqual([CASES.pepHit]);
     });
 
+    it('resolves the "me" assignee filter to the acting reviewer', () => {
+      const mine = listQueue(deps, compliance, { assignee: 'me' });
+      const managers = listQueue(deps, manager, { assignee: 'me' });
+      if (isAppError(mine) || isAppError(managers)) throw new Error('expected queues');
+
+      expect(mine.map((item) => item.id)).toEqual([CASES.pepHit]);
+      expect(managers.map((item) => item.id)).toEqual([CASES.managerHeld]);
+    });
+
     it('refuses to list anything for a role without KYC access', () => {
       const queue = listQueue(deps, support);
       expect(isAppError(queue) && queue.code).toBe('FORBIDDEN');
     });
   });
 
-  describe('ordinary decisions', () => {
-    it('lets Compliance approve a complete case and records it in that case audit timeline', async () => {
+  describe('claiming', () => {
+    it('claims an unassigned case for the reviewer and moves it into review', async () => {
       const before = caseRow(CASES.ordinary);
+      const result = await claimCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        expectedVersion: before.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected claim, got ${result.message}`);
+      expect(result.assigneeId).toBe(compliance.id);
+      expect(result.status).toBe('IN_REVIEW');
+      expect(result.version).toBe(before.version + 1);
+
+      const events = auditFor(CASES.ordinary);
+      expect(events).toHaveLength(1);
+      expect(events[0].action).toBe('kyc:assign');
+      expect(events[0].outcome).toBe('ACCEPTED');
+      expect(JSON.parse(events[0].afterJson!).assigneeId).toBe(compliance.id);
+    });
+
+    it('is a no-op when the actor already holds the case', async () => {
+      await claim(compliance, CASES.ordinary);
+      const held = caseRow(CASES.ordinary);
+
+      const again = await claimCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        expectedVersion: held.version,
+      });
+
+      if (isAppError(again)) throw new Error('expected idempotent claim');
+      expect(again.version).toBe(held.version);
+      // A retry must not double-write or double-audit.
+      expect(auditFor(CASES.ordinary)).toHaveLength(1);
+    });
+
+    it('refuses to claim a case another reviewer holds', async () => {
+      const before = caseRow(CASES.managerHeld);
+      const result = await claimCase(deps, compliance, {
+        caseId: CASES.managerHeld,
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('CONFLICT');
+      expect(caseRow(CASES.managerHeld)).toEqual(before);
+      const events = auditFor(CASES.managerHeld);
+      expect(events).toHaveLength(1);
+      expect(events[0].outcome).toBe('DENIED');
+    });
+
+    it('lets the override tier take over a held case', async () => {
+      const before = caseRow(CASES.pepHit);
+      expect(before.assigneeId).toBe(compliance.id);
+
+      const result = await claimCase(deps, manager, {
+        caseId: CASES.pepHit,
+        expectedVersion: before.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected take-over, got ${result.message}`);
+      expect(result.assigneeId).toBe(manager.id);
+    });
+
+    it('refuses to claim a decided case', async () => {
+      await claim(compliance, CASES.ordinary);
+      await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        decision: 'APPROVE',
+        reason: 'Verified.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+
+      const before = caseRow(CASES.ordinary);
+      const result = await claimCase(deps, manager, {
+        caseId: CASES.ordinary,
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('CONFLICT');
+      expect(caseRow(CASES.ordinary)).toEqual(before);
+    });
+
+    it('refuses a claim from a role without KYC access', async () => {
+      const before = caseRow(CASES.ordinary);
+      const result = await claimCase(deps, support, {
+        caseId: CASES.ordinary,
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('FORBIDDEN');
+      expect(caseRow(CASES.ordinary)).toEqual(before);
+      expect(auditFor(CASES.ordinary).every((e) => e.outcome === 'DENIED')).toBe(true);
+    });
+  });
+
+  describe('ordinary decisions', () => {
+    it('lets Compliance claim then approve a complete case, recorded in the case audit timeline', async () => {
+      await claim(compliance, CASES.ordinary);
       const result = await decideCase(deps, compliance, {
         caseId: CASES.ordinary,
         decision: 'APPROVE',
         reason: 'Documents verified, no adverse findings.',
-        expectedVersion: before.version,
+        expectedVersion: caseRow(CASES.ordinary).version,
       });
 
       if (isAppError(result)) throw new Error(`expected approval, got ${result.message}`);
@@ -116,24 +241,44 @@ describe('KYC review', () => {
       expect(result.decidedBy).toBe(compliance.id);
       expect(result.decisionReason).toBe('Documents verified, no adverse findings.');
 
+      // Timestamps have ms resolution, so don't rely on list order for same-ms events.
       const events = auditFor(CASES.ordinary);
-      expect(events).toHaveLength(1);
-      expect(events[0].outcome).toBe('ACCEPTED');
-      expect(events[0].reason).toBe('Documents verified, no adverse findings.');
-      expect(JSON.parse(events[0].beforeJson!).status).toBe('OPEN');
-      expect(JSON.parse(events[0].afterJson!).status).toBe('APPROVED');
+      expect(new Set(events.map((e) => e.action))).toEqual(new Set(['kyc:assign', 'kyc:decide']));
+      expect(events.every((e) => e.outcome === 'ACCEPTED')).toBe(true);
+      const decision = events.find((e) => e.action === 'kyc:decide')!;
+      expect(decision.reason).toBe('Documents verified, no adverse findings.');
+      expect(JSON.parse(decision.beforeJson!).status).toBe('IN_REVIEW');
+      expect(JSON.parse(decision.afterJson!).status).toBe('APPROVED');
 
       // The timeline is case-specific: another case sees none of this.
       expect(auditFor(CASES.missingDocuments)).toHaveLength(0);
     });
 
-    it('rejects a second decision on an already decided case', async () => {
+    it('refuses a decision on a case the reviewer does not hold', async () => {
       const before = caseRow(CASES.ordinary);
+      const result = await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        decision: 'APPROVE',
+        reason: 'Deciding without claiming.',
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('FORBIDDEN');
+      expect(caseRow(CASES.ordinary)).toEqual(before);
+
+      const events = auditFor(CASES.ordinary);
+      expect(events).toHaveLength(1);
+      expect(events[0].outcome).toBe('DENIED');
+      expect(events[0].action).toBe('kyc:decide');
+    });
+
+    it('rejects a second decision on an already decided case', async () => {
+      await claim(compliance, CASES.ordinary);
       await decideCase(deps, compliance, {
         caseId: CASES.ordinary,
         decision: 'APPROVE',
         reason: 'Documents verified.',
-        expectedVersion: before.version,
+        expectedVersion: caseRow(CASES.ordinary).version,
       });
 
       const again = await decideCase(deps, manager, {
@@ -145,32 +290,33 @@ describe('KYC review', () => {
 
       expect(isAppError(again) && again.code).toBe('CONFLICT');
       expect(caseRow(CASES.ordinary).status).toBe('APPROVED');
-      expect(auditFor(CASES.ordinary).filter((e) => e.outcome === 'ACCEPTED')).toHaveLength(1);
+      expect(
+        auditFor(CASES.ordinary).filter(
+          (e) => e.action === 'kyc:decide' && e.outcome === 'ACCEPTED',
+        ),
+      ).toHaveLength(1);
     });
 
-    it('rejects a stale version rather than overwriting a concurrent decision', async () => {
-      const stale = caseRow(CASES.pepHit).version;
-      await decideCase(deps, manager, {
-        caseId: CASES.pepHit,
-        decision: 'REJECT',
-        reason: 'PEP relationship unverified.',
-        expectedVersion: stale,
-      });
+    it('rejects a stale version rather than overwriting a concurrent change', async () => {
+      const stale = caseRow(CASES.ordinary).version;
+      // Another reviewer action moved the version on before this decide landed.
+      await claim(compliance, CASES.ordinary);
 
-      const result = await decideCase(deps, manager, {
-        caseId: CASES.pepHit,
+      const result = await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
         decision: 'APPROVE',
-        reason: 'Second reviewer disagrees.',
+        reason: 'Reviewed against a stale page.',
         expectedVersion: stale,
       });
 
       expect(isAppError(result) && result.code).toBe('CONFLICT');
-      expect(caseRow(CASES.pepHit).status).toBe('REJECTED');
+      expect(caseRow(CASES.ordinary).status).toBe('IN_REVIEW');
     });
   });
 
   describe('required documents', () => {
     it('blocks approval while a required document is outstanding', async () => {
+      await claim(compliance, CASES.missingDocuments);
       const before = caseRow(CASES.missingDocuments);
       const result = await decideCase(deps, compliance, {
         caseId: CASES.missingDocuments,
@@ -181,16 +327,21 @@ describe('KYC review', () => {
 
       expect(isAppError(result) && result.code).toBe('PRECONDITION_FAILED');
       expect(caseRow(CASES.missingDocuments)).toEqual(before);
-      expect(auditFor(CASES.missingDocuments).every((e) => e.outcome === 'DENIED')).toBe(true);
+
+      const decisionEvents = auditFor(CASES.missingDocuments).filter(
+        (e) => e.action === 'kyc:decide',
+      );
+      expect(decisionEvents).toHaveLength(1);
+      expect(decisionEvents[0].outcome).toBe('DENIED');
     });
 
     it('still allows rejection of an incomplete case, with the reason recorded', async () => {
-      const before = caseRow(CASES.missingDocuments);
+      await claim(compliance, CASES.missingDocuments);
       const result = await decideCase(deps, compliance, {
         caseId: CASES.missingDocuments,
         decision: 'REJECT',
         reason: 'Proof of address never supplied.',
-        expectedVersion: before.version,
+        expectedVersion: caseRow(CASES.missingDocuments).version,
       });
 
       if (isAppError(result)) throw new Error('expected rejection to be allowed');
@@ -201,6 +352,7 @@ describe('KYC review', () => {
 
   describe('sanctions and PEP hits', () => {
     it('refuses approval by Compliance and leaves the case untouched', async () => {
+      await claim(compliance, CASES.sanctionsHit);
       const before = caseRow(CASES.sanctionsHit);
       const result = await decideCase(deps, compliance, {
         caseId: CASES.sanctionsHit,
@@ -212,13 +364,23 @@ describe('KYC review', () => {
       expect(isAppError(result) && result.code).toBe('FORBIDDEN');
       expect(caseRow(CASES.sanctionsHit)).toEqual(before);
 
-      const events = auditFor(CASES.sanctionsHit);
-      expect(events).toHaveLength(1);
-      expect(events[0].outcome).toBe('DENIED');
-      expect(ctx.db.select().from(auditEvents).all().some((e) => e.outcome === 'ACCEPTED')).toBe(false);
+      const decisionEvents = auditFor(CASES.sanctionsHit).filter(
+        (e) => e.action === 'kyc:decide',
+      );
+      expect(decisionEvents).toHaveLength(1);
+      expect(decisionEvents[0].outcome).toBe('DENIED');
+      // No audit row anywhere claims this case was decided.
+      expect(
+        ctx.db
+          .select()
+          .from(auditEvents)
+          .all()
+          .some((e) => e.action === 'kyc:decide' && e.outcome === 'ACCEPTED'),
+      ).toBe(false);
     });
 
     it('lets Compliance reject a sanctions hit', async () => {
+      await claim(compliance, CASES.sanctionsHit);
       const result = await decideCase(deps, compliance, {
         caseId: CASES.sanctionsHit,
         decision: 'REJECT',
@@ -231,6 +393,7 @@ describe('KYC review', () => {
     });
 
     it('allows Manager / Admin to approve a sanctions hit as an override', async () => {
+      await claim(manager, CASES.sanctionsHit);
       const result = await decideCase(deps, manager, {
         caseId: CASES.sanctionsHit,
         decision: 'APPROVE',
@@ -240,10 +403,13 @@ describe('KYC review', () => {
 
       if (isAppError(result)) throw new Error(`expected override approval, got ${result.message}`);
       expect(result.status).toBe('APPROVED');
-      expect(auditFor(CASES.sanctionsHit)[0].outcome).toBe('ACCEPTED');
+      expect(
+        auditFor(CASES.sanctionsHit).find((e) => e.action === 'kyc:decide')!.outcome,
+      ).toBe('ACCEPTED');
     });
 
     it('applies the override rule to a PEP hit too', async () => {
+      // Seeded as already held by the demo Compliance Analyst.
       const result = await decideCase(deps, compliance, {
         caseId: CASES.pepHit,
         decision: 'APPROVE',
@@ -253,6 +419,119 @@ describe('KYC review', () => {
 
       expect(isAppError(result) && result.code).toBe('FORBIDDEN');
       expect(caseRow(CASES.pepHit).status).toBe('IN_REVIEW');
+    });
+  });
+
+  describe('escalation', () => {
+    it('hands a held case to the Manager / Admin tier, with the reason audited', async () => {
+      await claim(compliance, CASES.ordinary);
+      const held = caseRow(CASES.ordinary);
+
+      const result = await escalateCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Unusual corporate structure needs manager sign-off.',
+        expectedVersion: held.version,
+      });
+
+      if (isAppError(result)) throw new Error(`expected escalation, got ${result.message}`);
+      expect(result.assigneeId).toBe(MANAGER_TIER_ID);
+      expect(result.status).toBe('IN_REVIEW');
+      expect(result.version).toBe(held.version + 1);
+
+      const events = auditFor(CASES.ordinary);
+      const escalation = events.find((e) => e.action === 'kyc:escalate')!;
+      expect(escalation.outcome).toBe('ACCEPTED');
+      expect(escalation.reason).toBe('Unusual corporate structure needs manager sign-off.');
+      expect(JSON.parse(escalation.afterJson!).assigneeId).toBe(MANAGER_TIER_ID);
+    });
+
+    it('the manager sees an escalated case as assigned to them, and can decide it', async () => {
+      await claim(compliance, CASES.ordinary);
+      await escalateCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Needs a second pair of eyes.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+
+      const mine = listQueue(deps, manager, { assignee: 'me' });
+      if (isAppError(mine)) throw new Error('expected a queue');
+      expect(mine.map((item) => item.id)).toContain(CASES.ordinary);
+
+      const result = await decideCase(deps, manager, {
+        caseId: CASES.ordinary,
+        decision: 'APPROVE',
+        reason: 'Manager review complete.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+      if (isAppError(result)) throw new Error(`expected manager decision, got ${result.message}`);
+      expect(result.status).toBe('APPROVED');
+    });
+
+    it('the original reviewer no longer holds an escalated case and cannot decide it', async () => {
+      await claim(compliance, CASES.ordinary);
+      await escalateCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Above my authority.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+
+      const before = caseRow(CASES.ordinary);
+      const result = await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        decision: 'REJECT',
+        reason: 'Rejecting anyway.',
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('FORBIDDEN');
+      expect(caseRow(CASES.ordinary)).toEqual(before);
+    });
+
+    it('refuses to escalate a case the actor does not hold', async () => {
+      const before = caseRow(CASES.missingDocuments);
+      const result = await escalateCase(deps, compliance, {
+        caseId: CASES.missingDocuments,
+        reason: 'Escalating an unclaimed case.',
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('FORBIDDEN');
+      expect(caseRow(CASES.missingDocuments)).toEqual(before);
+      expect(auditFor(CASES.missingDocuments).every((e) => e.outcome === 'DENIED')).toBe(true);
+    });
+
+    it('refuses to escalate above the top review tier', async () => {
+      const before = caseRow(CASES.managerHeld);
+      expect(before.assigneeId).toBe(manager.id);
+
+      const result = await escalateCase(deps, manager, {
+        caseId: CASES.managerHeld,
+        reason: 'Nowhere to send this.',
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('CONFLICT');
+      expect(caseRow(CASES.managerHeld)).toEqual(before);
+    });
+
+    it('refuses to escalate a decided case', async () => {
+      await claim(compliance, CASES.ordinary);
+      await decideCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        decision: 'REJECT',
+        reason: 'Failed verification.',
+        expectedVersion: caseRow(CASES.ordinary).version,
+      });
+
+      const before = caseRow(CASES.ordinary);
+      const result = await escalateCase(deps, compliance, {
+        caseId: CASES.ordinary,
+        reason: 'Escalating a closed case.',
+        expectedVersion: before.version,
+      });
+
+      expect(isAppError(result) && result.code).toBe('CONFLICT');
+      expect(caseRow(CASES.ordinary)).toEqual(before);
     });
   });
 
@@ -289,6 +568,7 @@ describe('KYC review', () => {
 
   describe('case detail', () => {
     it('returns provider evidence, customer identity and the audit timeline together', async () => {
+      await claim(compliance, CASES.ordinary);
       await decideCase(deps, compliance, {
         caseId: CASES.ordinary,
         decision: 'APPROVE',
@@ -303,7 +583,7 @@ describe('KYC review', () => {
       expect(detail.evidence.referralReason).toBeTruthy();
       expect(detail.evidence.documents.length).toBeGreaterThan(0);
       expect(detail.workflow.status).toBe('APPROVED');
-      expect(detail.audit).toHaveLength(1);
+      expect(detail.audit).toHaveLength(2);
     });
 
     it('reports an unknown case as not found', () => {

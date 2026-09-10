@@ -12,7 +12,7 @@ import { DecisionPanel } from '@/features/kyc/components/DecisionPanel';
 import { EvidencePanel } from '@/features/kyc/components/EvidencePanel';
 import { formatAge } from '@/features/kyc/components/QueueTable';
 import { FlagBadge, RiskBadge } from '@/features/kyc/components/RiskBadge';
-import { canOverrideSanctions, canReviewKyc } from '@/features/kyc/authorization';
+import { canAssignKyc, canOverrideSanctions, canReviewKyc, escalationTargetAssigneeId } from '@/features/kyc/authorization';
 import { kycDeps } from '@/features/kyc/deps';
 import { getCaseDetail, outstandingDocuments, requiresSanctionsOverride } from '@/features/kyc/service';
 import { requireAppAccessOrDenied } from '@/lib/auth/guards';
@@ -109,6 +109,11 @@ export default async function KycCasePage({ params }: Props) {
               version={workflow.version}
               decided={decided}
               canDecide={canReviewKyc(guard.actor.role)}
+              canAssign={canAssignKyc(guard.actor.role)}
+              canTakeOver={canOverrideSanctions(guard.actor.role)}
+              canEscalate={escalationTargetAssigneeId(guard.actor.role) !== null}
+              assigneeId={workflow.assigneeId}
+              actorId={guard.actor.id}
               approvalBlockedReason={approvalBlockedReason}
             />
           </DetailPanel>
