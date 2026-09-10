@@ -68,9 +68,18 @@ export function createWorkflowRepository(db: AppDatabase): WorkflowRepository {
           : isTerminal === false
             ? null
             : existing.decidedAt;
-      const decidedBy = isTerminal === false ? null : update.decidedBy ?? existing.decidedBy;
+      const decidedBy =
+        isTerminal === false
+          ? null
+          : update.decidedBy !== undefined
+            ? update.decidedBy
+            : existing.decidedBy;
       const decisionReason =
-        isTerminal === false ? null : update.decisionReason ?? existing.decisionReason;
+        isTerminal === false
+          ? null
+          : update.decisionReason !== undefined
+            ? update.decisionReason
+            : existing.decisionReason;
 
       const updateResult = db
         .update(kycCaseWorkflow)

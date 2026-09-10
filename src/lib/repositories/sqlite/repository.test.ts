@@ -105,6 +105,43 @@ describe('WorkflowRepository and AuditSink', () => {
     expect(reopened.row.decisionReason).toBeNull();
   });
 
+  it('allows explicit clearing of KYC decision fields without changing status', () => {
+    const row = repo.createKycCase({
+      id: 'kycwf_clear_fields_1',
+      providerCaseRef: 'kyc_case_clear_fields_1',
+      customerRef: 'cus_clear_fields_1',
+      status: 'OPEN',
+      assigneeId: null,
+      openedAt: new Date(0),
+      updatedAt: new Date(0),
+      decisionReason: null,
+      decidedBy: null,
+      decidedAt: null,
+    });
+
+    const approved = repo.updateKycCase(row.id, {
+      status: 'APPROVED',
+      decisionReason: 'Looks good',
+      decidedBy: 'user_manager_1',
+      expectedVersion: 1,
+    });
+    expect(approved.success).toBe(true);
+    if (!approved.success) throw new Error('unexpected');
+
+    const corrected = repo.updateKycCase(row.id, {
+      decisionReason: null,
+      decidedBy: null,
+      expectedVersion: 2,
+    });
+    expect(corrected.success).toBe(true);
+    if (!corrected.success) throw new Error('unexpected');
+    expect(corrected.row.decidedBy).toBeNull();
+    expect(corrected.row.decisionReason).toBeNull();
+    // Status and decision timestamp remain unchanged.
+    expect(corrected.row.status).toBe('APPROVED');
+    expect(corrected.row.decidedAt).not.toBeNull();
+  });
+
   it('creates refund cases with unique idempotency keys', () => {
     repo.createRefundCase({
       id: 'rfwf_test_1',

@@ -132,7 +132,7 @@ export function ConfirmationDialog({
         <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
-            onClick={onCancel}
+            onClick={() => ref.current?.close()}
             className="rounded border border-border-subtle bg-surface px-3 py-1.5 text-sm font-medium text-foreground hover:bg-slate-50"
           >
             {cancelLabel}

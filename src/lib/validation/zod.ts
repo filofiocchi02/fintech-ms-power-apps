@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { validationError, type AppError } from '@/lib/errors/errors';
+
 /**
  * Shared Zod helpers so every route validates input consistently and returns typed errors.
  *
@@ -7,8 +9,8 @@ import { z } from 'zod';
  * messages and coercion behaviour identical across apps.
  */
 
-/** Minor-unit money amount (pence). Rejects floats and zero. */
-export const amountMinor = z.coerce.number().int().positive();
+/** Minor-unit money amount (pence). Rejects floats, zero, strings and booleans. */
+export const amountMinor = z.number().int().positive();
 
 /** ISO 4217 currency code, uppercased. */
 export const currency = z.string().min(3).max(3).toUpperCase();
@@ -35,7 +37,7 @@ export function parseOrAppError<T>(
   schema: z.ZodSchema<T>,
   value: unknown,
   onError: (issues: z.ZodIssue[]) => string,
-): T | { code: 'VALIDATION'; message: string; details: Record<string, string | string[]> } {
+): T | AppError {
   const result = schema.safeParse(value);
   if (!result.success) {
     const details: Record<string, string | string[]> = {};
@@ -50,11 +52,7 @@ export function parseOrAppError<T>(
         details[path] = issue.message;
       }
     }
-    return {
-      code: 'VALIDATION',
-      message: onError(result.error.issues),
-      details,
-    };
+    return validationError(onError(result.error.issues), details);
   }
   return result.data;
 }
