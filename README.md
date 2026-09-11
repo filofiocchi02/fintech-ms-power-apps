@@ -96,9 +96,13 @@ npx playwright install chromium     # one-time per machine
 npm run test:e2e                    # builds, serves on :3100, tests against ./data/e2e.db
 ```
 
-E2e never touches the developer demo database: `e2e/global-setup.ts` rebuilds
-`./data/e2e.db` from migrations + seed, and the suite's web server runs with its own
-`INTERNAL_TOOLS_DB_PATH` and `DEMO_ROLE_SECRET`.
+When Playwright launches the suite server, e2e uses its own database:
+`e2e/global-setup.ts` rebuilds `./data/e2e.db` from migrations + seed, and the launched
+server runs with its own `INTERNAL_TOOLS_DB_PATH` and `DEMO_ROLE_SECRET`. That isolation
+only holds for a server Playwright starts — locally, `reuseExistingServer` attaches to
+whatever already answers on `E2E_PORT`, including a dev server pointed at the demo
+database. Make sure port 3100 is free, or belongs to a server started by a previous e2e
+run, before running the suite.
 
 ## Architecture in one paragraph
 
